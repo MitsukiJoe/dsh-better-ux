@@ -1,0 +1,66 @@
+{
+  "name": "dsh-better-ux",
+  "version": "0.1.0",
+  "description": "Web UX kit for DeepSeek Harness: hover session actions and a large model picker, with more surface polish to come.",
+  "license": "MIT",
+  "author": "MitsukiJoe",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "README.zh.md",
+    "cordis.patch.yml",
+    "index.js",
+    "install.sh",
+    "lib",
+    "docs"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "ux",
+    "web-ui",
+    "ui"
+  ],
+  "homepage": "https://github.com/MitsukiJoe/dsh-better-ux#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MitsukiJoe/dsh-better-ux.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MitsukiJoe/dsh-better-ux/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "slots",
+        "sessions",
+        "modelDirectories"
+      ]
+    },
+    "market": {
+      "displayName": "Better UX",
+      "categories": ["ui"],
+      "screenshots": [
+        "https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/docs/social-preview.png",
+        "https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/docs/model-picker-fullpage.png",
+        "https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/docs/session-row-tooltip.png"
+      ]
+    }
+  }
+}
