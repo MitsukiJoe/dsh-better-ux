@@ -18,10 +18,7 @@
     "cordis.patch.yml",
     "index.js",
     "install.sh",
-    "lib",
-    "docs/*.png",
-    "docs/awesome-dsh-plugin.yml",
-    "docs/social-preview/*.png"
+    "lib"
   ],
   "keywords": [
     "deepseek-harness",
