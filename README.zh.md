@@ -1,13 +1,29 @@
-![dsh-better-ux](docs/logo-258.png)
+<div align="center">
+
+<p>
+  <img src="docs/logo-258.png" width="128" height="128" alt="dsh-better-ux" />
+</p>
 
 # dsh-better-ux
 
-![DSH plugin](https://img.shields.io/badge/DSH-plugin-4F8EF7?style=plastic)
-![platform](https://img.shields.io/badge/platform-web-111111?style=plastic)
-![license](https://img.shields.io/badge/license-MIT-2ea44f?style=plastic)
-![version](https://img.shields.io/badge/version-0.1.0-informational?style=plastic)
+**面向 DeepSeek Harness 网页端的交互增强：会话操作、模型选择、移动导航与字体缩放。**
 
-![dsh-better-ux：会话行快捷操作与大浮层模型选择器](docs/social-preview.png)
+<p>
+  <a href="README.md">🇺🇸 English</a> | <b>🇨🇳 简体中文</b>
+</p>
+
+<p>
+  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DSH-plugin-4F8EF7?style=plastic" alt="DSH 插件" /></a>
+  <a href="#安装"><img src="https://img.shields.io/badge/platform-web-111111?style=plastic" alt="平台：Web" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f?style=plastic" alt="许可证：MIT" /></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/version-0.2.0-informational?style=plastic" alt="版本：0.2.0" /></a>
+</p>
+
+<p>
+  <img src="assets/social-preview/zh.png" alt="dsh-better-ux：会话行快捷操作与大浮层模型选择器" />
+</p>
+
+</div>
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的网页交互体验套件，包含四类可独立开关的界面优化：
 
@@ -16,7 +32,7 @@
 - **移动端优化**：手机和平板隐藏宿主左侧栏，使用自定义横向顶部栏；工作区、会话、状态、更多菜单、视图选项和排序仍映射宿主，并补充图片选择入口
 - **全局字体缩放**：移动端（手机 / 平板）和桌面 / 其他可分别设置 10%–200% 的字体、行高和内边距比例会跟随调整，方便设置成看到更多内容；移动端默认 80%，步进按钮每次调整 5%
 
-
+插件自有文案会跟随 DSH 当前的中文或英文即时切换；映射宿主操作时，会优先复用宿主已经本地化的标签。0.2.0 面向带有内置语言服务的 DSH 版本。
 
 ### 模型选择器
 

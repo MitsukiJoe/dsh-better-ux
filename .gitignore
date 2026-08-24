@@ -1,4 +1,5 @@
 node_modules
 .DS_Store
 *.log
-docs/social-preview.md
+**/social-preview/*
+!**/social-preview/*.png

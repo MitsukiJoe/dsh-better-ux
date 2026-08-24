@@ -1,17 +1,29 @@
-<p align="center">
-  <img src="docs/logo-258.png" width="128" height="128" alt="dsh-better-ux">
+<div align="center">
+
+<p>
+  <img src="docs/logo-258.png" width="128" height="128" alt="dsh-better-ux" />
 </p>
 
 # dsh-better-ux
 
-[![DSH plugin](https://img.shields.io/badge/DSH-plugin-4F8EF7?style=plastic)](https://github.com/deepseek-ai/deepseek-harness)
-[![platform](https://img.shields.io/badge/platform-web-111111?style=plastic)](#install)
-[![license](https://img.shields.io/badge/license-MIT-2ea44f?style=plastic)](LICENSE)
-[![version](https://img.shields.io/badge/version-0.1.0-informational?style=plastic)](package.json)
+**A focused DeepSeek Harness web UX kit for faster sessions, model selection, mobile navigation, and readable scaling.**
 
-<p align="center">
-  <img src="docs/social-preview.png" alt="dsh-better-ux: session row actions and large model picker">
+<p>
+  <b>🇺🇸 English</b> | <a href="README.zh.md">🇨🇳 简体中文</a>
 </p>
+
+<p>
+  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DSH-plugin-4F8EF7?style=plastic" alt="DSH plugin" /></a>
+  <a href="#install"><img src="https://img.shields.io/badge/platform-web-111111?style=plastic" alt="Platform: web" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f?style=plastic" alt="License: MIT" /></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/version-0.2.0-informational?style=plastic" alt="Version: 0.2.0" /></a>
+</p>
+
+<p>
+  <img src="assets/social-preview/en.png" alt="dsh-better-ux: session row actions and large model picker" />
+</p>
+
+</div>
 
 A web UX kit for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), with four independently configurable interface improvements:
 
@@ -19,6 +31,8 @@ A web UX kit for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 - **Model picker** — replace the cramped two-level menu with one overlay containing search, providers, reasoning levels, and Auto Vision twin actions on their original model cards
 - **Mobile optimization** — hide the host sidebar on phones and tablets and render a custom horizontal bar; workspaces, sessions, status, overflow menus, view options, and sorting remain mapped to the host, with an added image picker
 - **Global font scale** — set independent 10%–200% ratios for font size, line height, and padding on mobile (phone/tablet) and desktop/other viewports; mobile defaults to 80%, and step buttons change the value by 5%
+
+All plugin-owned labels follow the current DSH language (Chinese or English) and update immediately when it changes. Mapped host actions reuse the host's localized labels where available. Version 0.2.0 targets DSH builds with the built-in locale service.
 
 ### Model picker
 
@@ -40,7 +54,7 @@ Idle, running, and blank sessions that finish activation all receive Rename, For
 
 ### Mobile optimization
 
-Under **Settings → 交互体验**, phones and tablets hide the host sidebar and use the plugin's own top bar. The first row contains the logo, a conversation-header toggle, and native DSH actions for New session, New workspace, Search, View options, and Settings; the horizontal rows below show workspaces and sessions for the selected workspace.
+Under **Settings → Better UX**, phones and tablets hide the host sidebar and use the plugin's own top bar. The first row contains the logo, a conversation-header toggle, and native DSH actions for New session, New workspace, Search, View options, and Settings; the horizontal rows below show workspaces and sessions for the selected workspace.
 
 **If you customized the original left sidebar heavily, consider turning this option off.**
 
@@ -76,7 +90,7 @@ Mobile (phone/tablet) and desktop/other ratios are stored separately. Enter any 
 
 ### Settings
 
-Open **Settings → 交互体验**.
+Open **Settings → Better UX**.
 
 ![Settings → 交互体验](docs/settings-page.png)
 
@@ -97,7 +111,7 @@ Disabling a category restores the corresponding original DSH interface.
 dsh plugin --profile web add github:MitsukiJoe/dsh-better-ux
 ```
 
-Restart `dsh web`. Open **Settings → 交互体验**.
+Restart `dsh web`. Open **Settings → Better UX**.
 
 ### One-liner
 
@@ -130,7 +144,7 @@ PY
 ln -sfn "$PLUGIN" ~/.dsh/profiles/web/node_modules/dsh-better-ux
 ```
 
-Restart `dsh web`. Open **Settings → 交互体验**.
+Restart `dsh web`. Open **Settings → Better UX**.
 
 ### Official CLI
 
