@@ -1,0 +1,44 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify release tag and package
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          test "v$VERSION" = "$GITHUB_REF_NAME"
+          node --check index.js
+          node --check lib/client.js
+          npm pack --dry-run
+
+      - name: Check whether version already exists
+        id: version
+        run: |
+          NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish package
+        if: steps.version.outputs.published != 'true'
+        run: npm publish --access public --provenance
