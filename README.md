@@ -20,7 +20,7 @@
 </p>
 
 <p>
-  <img src="assets/social-preview/en.png" alt="dsh-better-ux: session row actions and large model picker" />
+  <img src="docs/social-preview/en.png" alt="dsh-better-ux: session row actions and large model picker" />
 </p>
 
 </div>

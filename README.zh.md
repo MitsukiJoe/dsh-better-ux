@@ -20,7 +20,7 @@
 </p>
 
 <p>
-  <img src="assets/social-preview/zh.png" alt="dsh-better-ux：会话行快捷操作与大浮层模型选择器" />
+  <img src="docs/social-preview/zh.png" alt="dsh-better-ux：会话行快捷操作与大浮层模型选择器" />
 </p>
 
 </div>

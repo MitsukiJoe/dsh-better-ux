@@ -21,7 +21,7 @@
     "lib",
     "docs/*.png",
     "docs/awesome-dsh-plugin.yml",
-    "assets/social-preview/*.png"
+    "docs/social-preview/*.png"
   ],
   "keywords": [
     "deepseek-harness",
@@ -60,7 +60,7 @@
       "displayName": "Better UX",
       "categories": ["ui"],
       "screenshots": [
-        "https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/assets/social-preview/en.png",
+        "https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/docs/social-preview/en.png",
         "https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/docs/model-picker-fullpage.png",
         "https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/docs/session-row-tooltip.png"
       ]
