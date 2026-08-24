@@ -16,7 +16,7 @@
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DSH-plugin-4F8EF7?style=plastic" alt="DSH plugin" /></a>
   <a href="#install"><img src="https://img.shields.io/badge/platform-web-111111?style=plastic" alt="Platform: web" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f?style=plastic" alt="License: MIT" /></a>
-  <a href="package.json"><img src="https://img.shields.io/badge/version-0.2.0-informational?style=plastic" alt="Version: 0.2.0" /></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/version-0.2.1-informational?style=plastic" alt="Version: 0.2.1" /></a>
 </p>
 
 <p>
@@ -32,7 +32,7 @@ A web UX kit for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 - **Mobile optimization** — hide the host sidebar on phones and tablets and render a custom horizontal bar; workspaces, sessions, status, overflow menus, view options, and sorting remain mapped to the host, with an added image picker
 - **Global font scale** — set independent 10%–200% ratios for font size, line height, and padding on mobile (phone/tablet) and desktop/other viewports; mobile defaults to 80%, and step buttons change the value by 5%
 
-All plugin-owned labels follow the current DSH language (Chinese or English) and update immediately when it changes. Mapped host actions reuse the host's localized labels where available. Version 0.2.0 targets DSH builds with the built-in locale service.
+All plugin-owned labels follow the current DSH language (Chinese or English) and update immediately when it changes. Mapped host actions reuse the host's localized labels where available. This release targets DSH builds with the built-in locale service.
 
 ### Model picker
 
@@ -105,54 +105,39 @@ Disabling a category restores the corresponding original DSH interface.
 
 ## Install
 
+### npm
+
+```bash
+dsh plugin --profile web add dsh-better-ux@latest
+```
+
 ### GitHub
 
 ```bash
 dsh plugin --profile web add github:MitsukiJoe/dsh-better-ux
 ```
 
-Restart `dsh web`. Open **Settings → Better UX**.
+### Ask DSH
 
-### One-liner
+Send this message to DSH:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/install.sh | bash
+```text
+Install this plugin https://github.com/MitsukiJoe/dsh-better-ux
 ```
 
-Then fully quit and reopen DeepSeek Harness (or restart `dsh web`).
+Restart DSH after installation.
 
-### Local / file install
-
-```bash
-git clone https://github.com/MitsukiJoe/dsh-better-ux.git ~/dsh-better-ux
-# or point at this repo
-PLUGIN="$HOME/dsh-better-ux"
-
-python3 - <<PY
-from pathlib import Path
-import json
-p = Path.home() / ".dsh/profiles/web/package.json"
-pkg = json.loads(p.read_text())
-pkg.setdefault("dependencies", {})["dsh-better-ux"] = f"file:{Path('$PLUGIN').expanduser()}"
-bundles = pkg.setdefault("dsh", {}).setdefault("profile", {}).setdefault("bundles", [])
-if "dsh-better-ux" not in bundles:
-    bundles.append("dsh-better-ux")
-p.write_text(json.dumps(pkg, indent=2) + "\n")
-print("registered")
-PY
-
-ln -sfn "$PLUGIN" ~/.dsh/profiles/web/node_modules/dsh-better-ux
-```
-
-Restart `dsh web`. Open **Settings → Better UX**.
-
-### Official CLI
+## Update
 
 ```bash
-dsh plugin --profile web add file:$HOME/dsh-better-ux
+dsh plugin --profile web update dsh-better-ux
 ```
 
-If `dsh plugin add` rewrites the lockfile, prefer the `ln -sfn` path above.
+Or send this message to DSH:
+
+```text
+Update this plugin https://github.com/MitsukiJoe/dsh-better-ux
+```
 
 ## Uninstall
 

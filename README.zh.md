@@ -16,7 +16,7 @@
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DSH-plugin-4F8EF7?style=plastic" alt="DSH 插件" /></a>
   <a href="#安装"><img src="https://img.shields.io/badge/platform-web-111111?style=plastic" alt="平台：Web" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f?style=plastic" alt="许可证：MIT" /></a>
-  <a href="package.json"><img src="https://img.shields.io/badge/version-0.2.0-informational?style=plastic" alt="版本：0.2.0" /></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/version-0.2.1-informational?style=plastic" alt="版本：0.2.1" /></a>
 </p>
 
 <p>
@@ -32,7 +32,7 @@
 - **移动端优化**：手机和平板隐藏宿主左侧栏，使用自定义横向顶部栏；工作区、会话、状态、更多菜单、视图选项和排序仍映射宿主，并补充图片选择入口
 - **全局字体缩放**：移动端（手机 / 平板）和桌面 / 其他可分别设置 10%–200% 的字体、行高和内边距比例会跟随调整，方便设置成看到更多内容；移动端默认 80%，步进按钮每次调整 5%
 
-插件自有文案会跟随 DSH 当前的中文或英文即时切换；映射宿主操作时，会优先复用宿主已经本地化的标签。0.2.0 面向带有内置语言服务的 DSH 版本。
+插件自有文案会跟随 DSH 当前的中文或英文即时切换；映射宿主操作时，会优先复用宿主已经本地化的标签。本版本面向带有内置语言服务的 DSH。
 
 ### 模型选择器
 
@@ -126,7 +126,11 @@
 
 ## 安装
 
+### npm
 
+```bash
+dsh plugin --profile web add dsh-better-ux@latest
+```
 
 ### GitHub
 
@@ -134,32 +138,27 @@
 dsh plugin --profile web add github:MitsukiJoe/dsh-better-ux
 ```
 
-重启 `dsh web`。打开 **设置 → 交互体验**。
+### 让 DSH 安装
 
-### 一键
+向 DSH 发送：
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/install.sh | bash
+```text
+安装这个插件 https://github.com/MitsukiJoe/dsh-better-ux
 ```
 
-然后完全退出并重新打开 DeepSeek Harness（或重启 `dsh web`）。
+安装后重启 DSH。
 
-### 本地 / file 安装
-
-```bash
-PLUGIN="$HOME/dsh-better-ux"
-# 把 file:$PLUGIN 写进 ~/.dsh/profiles/web/package.json 的 dependencies
-# 并加入 dsh.profile.bundles
-ln -sfn "$PLUGIN" ~/.dsh/profiles/web/node_modules/dsh-better-ux
-```
-
-或：
+## 更新
 
 ```bash
-dsh plugin --profile web add file:$HOME/dsh-better-ux
+dsh plugin --profile web update dsh-better-ux
 ```
 
-重启 `dsh web`。打开 **设置 → 交互体验**。
+或向 DSH 发送：
+
+```text
+更新这个插件 https://github.com/MitsukiJoe/dsh-better-ux
+```
 
 ## 卸载
 

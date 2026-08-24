@@ -1,6 +1,6 @@
 {
   "name": "dsh-better-ux",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Web UX kit for DeepSeek Harness: hover session actions and a large model picker, with more surface polish to come.",
   "license": "MIT",
   "author": "MitsukiJoe",
@@ -55,7 +55,9 @@
     },
     "market": {
       "displayName": "Better UX",
-      "categories": ["ui"],
+      "categories": [
+        "ui"
+      ],
       "screenshots": [
         "https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/docs/social-preview/en.png",
         "https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/docs/model-picker-fullpage.png",
