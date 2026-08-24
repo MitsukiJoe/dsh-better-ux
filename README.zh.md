@@ -39,7 +39,8 @@
 点一次打开大浮层：搜索、供应商筛选、模型卡片，思考档位铺在底部。
 不再走「模型 → 列表 / 推理等级 → 列表」两级菜单。
 供应商筛选固定为单行横向轨道，普通滚轮和 `Shift + 滚轮` 都可横向浏览。
-若装了 `dsh-vision-router`，识图孪生供应商不会重复显示为独立分组，而是合并到对应的原模型卡片：点卡片走原模型，点右侧图片按钮走识图路由。
+若装了 [dsh-vision-router](https://github.com/ysr666/dsh-vision-router) && [dsh-vision-router-inline](https://github.com/MitsukiJoe/dsh-vision-router-inline)
+识图孪生供应商不会呈原插件那样重复显示为独立分组，而是合并到对应的原模型卡片：点卡片走原模型，点右侧图片按钮走识图路由。
 
 
 | 上：插件开启 · 下：关闭插件（原版）                                    |

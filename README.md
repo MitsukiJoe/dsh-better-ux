@@ -36,7 +36,8 @@ All plugin-owned labels follow the current DSH language (Chinese or English) and
 
 ### Model picker
 
-One click opens a full overlay: search, provider chips, model cards, and reasoning levels on the bottom row. No nested “Model → list / Effort → list” menu. Providers stay on one horizontal rail; a normal mouse wheel or `Shift + wheel` scrolls it sideways, while independent `8px` fades indicate hidden content at either edge. If `dsh-vision-router` is loaded, Auto Vision twin providers are folded into their matching original model cards instead of appearing as duplicate groups: the card selects the original model, and its picture button selects the twin route.
+One click opens a full overlay: search, provider chips, model cards, and reasoning levels on the bottom row. No nested “Model → list / Effort → list” menu. Providers stay on one horizontal rail; a normal mouse wheel or `Shift + wheel` scrolls it sideways, while independent `8px` fades indicate hidden content at either edge. If [dsh-vision-router](https://github.com/ysr666/dsh-vision-router) && [dsh-vision-router-inline](https://github.com/MitsukiJoe/dsh-vision-router-inline) are installed, Auto Vision twin providers are not shown as duplicate groups; they fold into the matching original model cards:
+the card selects the original model, and the picture button on the right selects the vision route.
 
 | Enabled (top) · Disabled, original menu (bottom) |
 | --- |
