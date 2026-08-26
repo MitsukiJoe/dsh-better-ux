@@ -6,7 +6,7 @@
 
 # dsh-better-ux
 
-**A focused DeepSeek Harness web UX kit for faster sessions, model selection, mobile navigation, and readable scaling.**
+**A focused DeepSeek Harness web UX kit for faster sessions, model selection, mobile navigation, photo attach, and readable scaling.**
 
 <p>
   <b>🇺🇸 English</b> | <a href="README.zh.md">🇨🇳 简体中文</a>
@@ -29,7 +29,7 @@ A web UX kit for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 - **Session row actions** — hover idle, running, or newly activated sessions to show Rename / Fork / Archive; keep `⋯` when another plugin adds menu actions
 - **Model picker** — replace the cramped two-level menu with one overlay containing search, providers, reasoning levels, and Auto Vision twin actions on their original model cards
-- **Mobile optimization** — hide the host sidebar on phones and tablets and render a custom horizontal bar; workspaces, sessions, status, overflow menus, view options, and sorting remain mapped to the host, with an added image picker
+- **Mobile optimization** — hide the host sidebar on phones and tablets and render a custom horizontal bar; workspaces, sessions, status, overflow menus, view options, and sorting remain mapped to the host. The stock mobile composer has no photo control, so the plugin adds an image button next to `+`
 - **Global font scale** — set independent 10%–200% ratios for font size, line height, and padding on mobile (phone/tablet) and desktop/other viewports; mobile defaults to 80%, and step buttons change the value by 5%
 
 All plugin-owned labels follow the current DSH language (Chinese or English) and update immediately when it changes. Mapped host actions reuse the host's localized labels where available. This release targets DSH builds with the built-in locale service.
@@ -68,7 +68,7 @@ Under **Settings → Better UX**, phones and tablets hide the host sidebar and u
 - **Horizontal overflow** — workspace and session rows support touch scrolling with independent `8px` fades on each edge of each row
 - **Disable page pinch-zoom** — on by default, blocks two-finger pinch zooming so a stray second finger on mobile no longer warps the page into an odd zoom or broken layout; if you rely on system zoom, turn the option off and the gesture comes back
 - **Flat list** — removes the workspace row and reduces both bar height and content offset
-- **Add image** — an image button appears beside the command-plus button, supports multiple selection, and reuses the host paste-image validation, draft preview, removal, and send flow; ordinary file attachments are not currently supported by the host
+- **Add image** — the stock mobile web composer only exposes `+` and does not offer a photo picker; the plugin adds an image button beside it, supports multiple selection, and reuses the host paste-image validation, draft preview, removal, and send flow; ordinary file attachments are not currently supported by the host
 - **Compatibility and restore** — the host conversation header and right-sidebar controls remain positioned below the dynamic bar; disabling the feature restores the original host sidebar and composer
 
 | Enabled | Disabled, original layout |
@@ -80,6 +80,12 @@ Grouping follows the host view options: **By workspace** keeps the workspace rai
 | Enabled | Disabled, original layout |
 | --- | --- |
 | ![Flat list grouping](docs/mobile-flat-list.png) | ![Original mobile layout in flat grouping](docs/mobile-flat-list-off.png) |
+
+The host mobile composer has no dedicated photo control. With mobile optimization on, an image button sits beside `+`:
+
+| Enabled | Disabled, original composer |
+| --- | --- |
+| ![Add image button beside the command-plus control](docs/mobile-add-image.png) | ![Original mobile composer without an image button](docs/mobile-add-image-off.png) |
 
 ### Global font scale
 

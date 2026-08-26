@@ -39,6 +39,10 @@
   "engines": {
     "node": ">=22"
   },
+  "scripts": {
+    "check": "node --check index.js && node --check lib/client.js",
+    "test": "node --test test/*.test.mjs"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -49,6 +53,7 @@
       "inject": [
         "slots",
         "sessions",
+        "workspaces",
         "modelDirectories",
         "locale"
       ]
