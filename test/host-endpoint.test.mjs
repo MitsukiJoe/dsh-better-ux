@@ -10,9 +10,16 @@ class Response extends EventEmitter {
   status = 0
   body = ''
 
-  writeHead(status) {
+  headers = {}
+
+  setHeader(name, value) {
+    this.headers[String(name).toLowerCase()] = value
+  }
+
+  writeHead(status, headers = {}) {
     this.status = status
     this.headersSent = true
+    for (const [name, value] of Object.entries(headers)) this.setHeader(name, value)
   }
 
   end(body = '') {
@@ -21,11 +28,48 @@ class Response extends EventEmitter {
   }
 }
 
-function request(body) {
-  const req = Readable.from([Buffer.from(JSON.stringify(body))])
-  req.method = 'POST'
-  req.headers = { 'content-type': 'application/json' }
+function request(body, method = 'POST', url = '/') {
+  const chunks = body === undefined ? [] : [Buffer.from(typeof body === 'string' ? body : JSON.stringify(body))]
+  const req = Readable.from(chunks)
+  req.method = method
+  req.url = url
+  req.headers = body === undefined ? {} : { 'content-type': 'application/json' }
   return req
+}
+
+function createMemoryStorage() {
+  const tables = { settings: {}, summaries: {} }
+  let activeWrites = 0
+  let maxActiveWrites = 0
+  let closeCount = 0
+  const open = async () => ({
+    async loadAll() {
+      return { tables: structuredClone(tables), global: null }
+    },
+    async putRecord(table, key, value) {
+      activeWrites += 1
+      maxActiveWrites = Math.max(maxActiveWrites, activeWrites)
+      await new Promise((resolve) => setImmediate(resolve))
+      tables[table][key] = structuredClone(value)
+      activeWrites -= 1
+    },
+    async deleteRecord(table, key) {
+      activeWrites += 1
+      maxActiveWrites = Math.max(maxActiveWrites, activeWrites)
+      await new Promise((resolve) => setImmediate(resolve))
+      delete tables[table][key]
+      activeWrites -= 1
+    },
+    async close() {
+      closeCount += 1
+    },
+  })
+  return {
+    service: { backend: { get: (name) => name === 'json' ? { kv: { open } } : undefined } },
+    tables,
+    get maxActiveWrites() { return maxActiveWrites },
+    get closeCount() { return closeCount },
+  }
 }
 
 test('serves isolated incremental summaries without appending session events', async () => {
@@ -45,10 +89,12 @@ test('serves isolated incremental summaries without appending session events', a
       { seq: 7, type: 'request/context', data: { provider: 'demo', model: 'model' } },
     ],
   }
+  const storage = createMemoryStorage()
   const ctx = {
     effect(factory) {
       return factory()
     },
+    storage: storage.service,
     webServer: {
       register(route) {
         registeredPath = route.path
@@ -66,7 +112,7 @@ test('serves isolated incremental summaries without appending session events', a
       },
     },
   }
-  apply(ctx)
+  await apply(ctx)
   const res = new Response()
   await handler(request({
     sessionId: 'session-1',
@@ -150,4 +196,180 @@ test('serves isolated incremental summaries without appending session events', a
   await handler(request({ sessionId: 'session-1', fields: { overall: true, recent: true } }), missingRouteRes)
   assert.equal(missingRouteRes.status, 400)
   assert.equal(JSON.parse(missingRouteRes.body).error, '请先选择摘要模型')
+})
+
+
+test('persists shared settings and summaries with serialized CAS writes', async () => {
+  const routes = new Map()
+  const disposers = []
+  const storage = createMemoryStorage()
+  const ctx = {
+    storage: storage.service,
+    sessions: { get: () => undefined },
+    llm: { async *stream() {} },
+    webServer: {
+      register(route) {
+        routes.set(route.path, route.handler)
+        return () => routes.delete(route.path)
+      },
+    },
+    effect(factory) {
+      const dispose = factory()
+      if (typeof dispose === 'function') disposers.push(dispose)
+      return dispose
+    },
+  }
+  await apply(ctx)
+  const handler = routes.get('/api/dsh-better-ux/state-v1')
+  assert.equal(typeof handler, 'function')
+
+  const empty = new Response()
+  await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1'), empty)
+  assert.deepEqual(JSON.parse(empty.body), { version: 1, settings: null, summary: null, summaryRevision: 0 })
+
+  const malformed = new Response()
+  await handler(request('{', 'PATCH', '/api/dsh-better-ux/state-v1'), malformed)
+  assert.equal(malformed.status, 400)
+
+  const unsupported = new Response()
+  await handler(request({ kind: 'settings', baseRevision: 0, patch: { toString: 'not-allowed' } }, 'PATCH', '/api/dsh-better-ux/state-v1'), unsupported)
+  assert.equal(unsupported.status, 400)
+
+  const initial = new Response()
+  await handler(request({
+    kind: 'settings',
+    baseRevision: 0,
+    patch: {
+      'sessionRow.enabled': false,
+      'modelPicker.closeOnPick': true,
+      'mobileLayout.noAutoFocus': false,
+      'mobileLayout.headerExpanded': false,
+      'fontScale.mobile': 90,
+      'conversationSummary.enabled': true,
+      'conversationSummary.mode': 'left',
+      'conversationSummary.contentShortcut': 'Tab',
+      'conversationSummary.provider': 'provider',
+      'conversationSummary.model': 'model',
+      'conversationSummary.modelCollapsed': false,
+      'conversationSummary.contentCollapsed': true,
+      'conversationSummary.overallCollapsed': false,
+      'conversationSummary.recentCollapsed': true,
+      'workspaceView.groupBy': 'flat',
+      'workspaceView.orderBy': 'manual',
+    },
+  }, 'PATCH', '/api/dsh-better-ux/state-v1'), initial)
+  assert.equal(initial.status, 200)
+  const initialRecord = JSON.parse(initial.body).settings
+  assert.equal(initialRecord.revision, 1)
+  assert.equal(initialRecord.value['sessionRow.enabled'], false)
+  assert.equal(initialRecord.value['fontScale.mobile'], 90)
+  assert.equal(initialRecord.value['conversationSummary.mode'], 'left')
+  assert.equal(initialRecord.value['workspaceView.orderBy'], 'manual')
+
+  const concurrent = await Promise.all([
+    ['conversationSummary.contentCollapsed', false],
+    ['conversationSummary.overallCollapsed', true],
+  ].map(async ([key, value]) => {
+    const res = new Response()
+    await handler(request({ kind: 'settings', baseRevision: 1, patch: { [key]: value } }, 'PATCH', '/api/dsh-better-ux/state-v1'), res)
+    return res
+  }))
+  assert.deepEqual(concurrent.map((res) => res.status).sort(), [200, 409])
+  assert.equal(storage.maxActiveWrites, 1)
+
+  const invalidSummaryField = new Response()
+  await handler(request({
+    kind: 'summary',
+    sessionId: 'session-sync',
+    baseRevision: 0,
+    value: { overall: 123, recent: '最近任务', seq: 8, overallSeq: 8, usage: null },
+  }, 'PATCH', '/api/dsh-better-ux/state-v1'), invalidSummaryField)
+  assert.equal(invalidSummaryField.status, 400)
+
+  const summaryPut = new Response()
+  await handler(request({
+    kind: 'summary',
+    sessionId: 'session-sync',
+    baseRevision: 0,
+    value: { overall: '跨浏览器摘要', recent: '最近任务', seq: 8, overallSeq: 8, usage: null },
+  }, 'PATCH', '/api/dsh-better-ux/state-v1'), summaryPut)
+  assert.equal(summaryPut.status, 200)
+  assert.equal(JSON.parse(summaryPut.body).summary.revision, 1)
+
+  const readBack = new Response()
+  await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?sessionId=session-sync'), readBack)
+  const state = JSON.parse(readBack.body)
+  assert.equal(state.summary.value.overall, '跨浏览器摘要')
+  assert.equal(state.summaryRevision, 1)
+  assert.equal(state.settings.revision, 2)
+
+  const summaryUpdate = new Response()
+  await handler(request({
+    kind: 'summary',
+    sessionId: 'session-sync',
+    baseRevision: 1,
+    value: { overall: '更新摘要', recent: '更新任务', seq: 9, overallSeq: 9, usage: null },
+  }, 'PATCH', '/api/dsh-better-ux/state-v1'), summaryUpdate)
+  assert.equal(summaryUpdate.status, 200)
+  assert.equal(JSON.parse(summaryUpdate.body).summary.revision, 2)
+
+  const missingDeleteRevision = new Response()
+  await handler(request(undefined, 'DELETE', '/api/dsh-better-ux/state-v1?sessionId=session-sync'), missingDeleteRevision)
+  assert.equal(missingDeleteRevision.status, 400)
+
+  for (const invalidRevision of ['', '%20', '0x2']) {
+    const invalidDeleteRevision = new Response()
+    await handler(request(undefined, 'DELETE', '/api/dsh-better-ux/state-v1?sessionId=session-sync&baseRevision=' + invalidRevision), invalidDeleteRevision)
+    assert.equal(invalidDeleteRevision.status, 400)
+  }
+
+  const staleDelete = new Response()
+  await handler(request(undefined, 'DELETE', '/api/dsh-better-ux/state-v1?sessionId=session-sync&baseRevision=1'), staleDelete)
+  assert.equal(staleDelete.status, 409)
+  assert.equal(storage.tables.summaries['session-sync'].revision, 2)
+
+  const removed = new Response()
+  await handler(request(undefined, 'DELETE', '/api/dsh-better-ux/state-v1?sessionId=session-sync&baseRevision=2'), removed)
+  assert.equal(removed.status, 204)
+  assert.equal(storage.tables.summaries['session-sync'].deleted, true)
+  assert.equal(storage.tables.summaries['session-sync'].revision, 3)
+
+  const afterDelete = new Response()
+  await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?sessionId=session-sync'), afterDelete)
+  assert.equal(JSON.parse(afterDelete.body).summary, null)
+  assert.equal(JSON.parse(afterDelete.body).summaryRevision, 3)
+
+  const staleCreate = new Response()
+  await handler(request({
+    kind: 'summary',
+    sessionId: 'session-sync',
+    baseRevision: 0,
+    value: { overall: '陈旧摘要', recent: '陈旧任务', seq: 8, overallSeq: 8, usage: null },
+  }, 'PATCH', '/api/dsh-better-ux/state-v1'), staleCreate)
+  assert.equal(staleCreate.status, 409)
+  assert.equal(JSON.parse(staleCreate.body).current.revision, 3)
+
+  for (const dispose of disposers.reverse()) await dispose()
+  assert.equal(storage.closeCount, 1)
+
+  disposers.length = 0
+  await apply(ctx)
+  const reopenedHandler = routes.get('/api/dsh-better-ux/state-v1')
+  const reopened = new Response()
+  await reopenedHandler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?sessionId=session-sync'), reopened)
+  assert.equal(JSON.parse(reopened.body).summary, null)
+  assert.equal(JSON.parse(reopened.body).summaryRevision, 3)
+
+  const recreated = new Response()
+  await reopenedHandler(request({
+    kind: 'summary',
+    sessionId: 'session-sync',
+    baseRevision: 3,
+    value: { overall: '恢复摘要', recent: '恢复任务', seq: 10, overallSeq: 10, usage: null },
+  }, 'PATCH', '/api/dsh-better-ux/state-v1'), recreated)
+  assert.equal(recreated.status, 200)
+  assert.equal(JSON.parse(recreated.body).summary.revision, 4)
+
+  for (const dispose of disposers.reverse()) await dispose()
+  assert.equal(storage.closeCount, 2)
 })

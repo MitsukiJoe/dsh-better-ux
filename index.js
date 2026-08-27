@@ -1,5 +1,14 @@
 const ROUTE = '/api/dsh-better-ux/summary-v2'
+const STATE_ROUTE = '/api/dsh-better-ux/state-v1'
+const STATE_DESCRIPTOR = Object.freeze({
+  name: 'dsh_better_ux',
+  version: 1,
+  tables: Object.freeze(['settings', 'summaries']),
+  hasGlobal: false,
+})
+const SETTINGS_KEY = 'global'
 const BODY_LIMIT = 32 * 1024
+const STATE_BODY_LIMIT = 128 * 1024
 const CHUNK_LIMIT = 18000
 export const DEFAULT_OVERALL_INSTRUCTION = '400个字以内简明扼要总结当前session干了什么'
 export const DEFAULT_RECENT_INSTRUCTION = '100个字以内简明扼要总结这轮对话干了什么'
@@ -9,7 +18,7 @@ const CUSTOM_PROMPT_LIMIT = 2000
 const MODEL_TIMEOUT = 180000
 
 export const name = 'dsh-better-ux'
-export const inject = ['llm', 'sessions', 'webServer']
+export const inject = ['llm', 'sessions', 'webServer', 'storage', 'storage.backend.json']
 
 export function clampText(value, limit) {
   const chars = Array.from(String(value || '').trim())
@@ -235,15 +244,19 @@ async function summarizeChunk(ctx, route, sessionId, previous, timeline, fields,
   }
 }
 
-async function readJson(req) {
+async function readJson(req, limit = BODY_LIMIT) {
   const chunks = []
   let size = 0
   for await (const chunk of req) {
     size += chunk.length
-    if (size > BODY_LIMIT) throw Object.assign(new Error('请求体过大'), { status: 413 })
+    if (size > limit) throw Object.assign(new Error('请求体过大'), { status: 413 })
     chunks.push(chunk)
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
+  } catch {
+    throw Object.assign(new Error('请求 JSON 无效'), { status: 400 })
+  }
 }
 
 function sendJson(res, status, value) {
@@ -256,7 +269,266 @@ function sendJson(res, status, value) {
   res.end(body)
 }
 
-export function apply(ctx) {
+const SHARED_SETTING_TYPES = Object.freeze({
+  'sessionRow.enabled': 'boolean',
+  'sessionRow.open': 'boolean',
+  'sessionRow.rename': 'boolean',
+  'sessionRow.fork': 'boolean',
+  'sessionRow.archive': 'boolean',
+  'sessionRow.tooltip': 'boolean',
+  'modelPicker.enabled': 'boolean',
+  'modelPicker.open': 'boolean',
+  'modelPicker.search': 'boolean',
+  'modelPicker.providers': 'boolean',
+  'modelPicker.efforts': 'boolean',
+  'modelPicker.closeOnPick': 'boolean',
+  'mobileLayout.enabled': 'boolean',
+  'mobileLayout.open': 'boolean',
+  'mobileLayout.longPressDrag': 'boolean',
+  'mobileLayout.overflowHint': 'boolean',
+  'mobileLayout.sidebarCompat': 'boolean',
+  'mobileLayout.noPinchZoom': 'boolean',
+  'mobileLayout.noAutoFocus': 'boolean',
+  'mobileLayout.headerExpanded': 'boolean',
+  'fontScale.enabled': 'boolean',
+  'fontScale.open': 'boolean',
+  'fontScale.mobile': 'scale',
+  'fontScale.desktop': 'scale',
+  'conversationSummary.enabled': 'boolean',
+  'conversationSummary.open': 'boolean',
+  'conversationSummary.overall': 'boolean',
+  'conversationSummary.recent': 'boolean',
+  'conversationSummary.mode': 'mode',
+  'conversationSummary.hover': 'boolean',
+  'conversationSummary.click': 'boolean',
+  'conversationSummary.contentShortcut': 'shortcut',
+  'conversationSummary.overallPrompt': 'prompt',
+  'conversationSummary.recentPrompt': 'prompt',
+  'conversationSummary.provider': 'route',
+  'conversationSummary.model': 'route',
+  'conversationSummary.modelLabel': 'route',
+  'conversationSummary.reasoningEffort': 'effort',
+  'conversationSummary.reasoningManual': 'boolean',
+  'conversationSummary.modelCollapsed': 'boolean',
+  'conversationSummary.contentCollapsed': 'boolean',
+  'conversationSummary.overallCollapsed': 'boolean',
+  'conversationSummary.recentCollapsed': 'boolean',
+  'workspaceView.groupBy': 'workspaceGroup',
+  'workspaceView.orderBy': 'workspaceOrder',
+})
+
+function stateError(message, status = 400, extra = {}) {
+  return Object.assign(new Error(message), { status, ...extra })
+}
+
+function checkSameOrigin(req) {
+  const origin = req.headers?.origin
+  if (!origin) return
+  try {
+    if (new URL(origin).host !== req.headers.host) throw new Error('origin mismatch')
+  } catch {
+    throw stateError('Forbidden', 403)
+  }
+}
+
+function normalizeBaseRevision(value) {
+  if (!Number.isSafeInteger(value) || value < 0) throw stateError('baseRevision 必须是非负整数')
+  return value
+}
+
+function normalizeSessionId(value) {
+  const sessionId = typeof value === 'string' ? value : ''
+  if (!sessionId || Array.from(sessionId).length > 512) throw stateError('sessionId 无效')
+  return sessionId
+}
+
+function flattenSettingsPatch(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw stateError('设置 patch 无效')
+  const entries = []
+  for (const [key, item] of Object.entries(value)) {
+    if (Object.hasOwn(SHARED_SETTING_TYPES, key)) {
+      entries.push([key, item])
+      continue
+    }
+    if (['sessionRow', 'modelPicker', 'mobileLayout', 'fontScale', 'conversationSummary', 'workspaceView'].includes(key) && item && typeof item === 'object' && !Array.isArray(item)) {
+      for (const [childKey, childValue] of Object.entries(item)) entries.push([key + '.' + childKey, childValue])
+      continue
+    }
+    throw stateError('设置字段不受支持')
+  }
+  if (!entries.length) throw stateError('设置 patch 不能为空')
+  const patch = {}
+  for (const [key, item] of entries) {
+    const type = SHARED_SETTING_TYPES[key]
+    if (!type) throw stateError('设置字段不受支持')
+    if (type === 'boolean') {
+      if (typeof item !== 'boolean') throw stateError(key + ' 必须是布尔值')
+    } else if (type === 'scale') {
+      if (!Number.isSafeInteger(item) || item < 10 || item > 200) throw stateError(key + ' 必须是 10 到 200 的整数')
+    } else if (type === 'mode') {
+      if (!['top', 'left', 'ball'].includes(item)) throw stateError('摘要展示方式无效')
+    } else if (type === 'workspaceGroup') {
+      if (!['workspace', 'flat'].includes(item)) throw stateError('工作区分组方式无效')
+    } else if (type === 'workspaceOrder') {
+      if (!['manual', 'updated'].includes(item)) throw stateError('工作区排序方式无效')
+    } else {
+      const limits = { shortcut: 80, prompt: 2000, route: 500, effort: 80 }
+      if (typeof item !== 'string' || Array.from(item).length > limits[type]) throw stateError(key + ' 字符串无效')
+      if (type === 'shortcut' && /[\0\r\n]/.test(item)) throw stateError('快捷键无效')
+    }
+    patch[key] = item
+  }
+  return patch
+}
+
+function normalizeUsage(value) {
+  if (value == null) return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw stateError('usage 无效')
+  const allowed = ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']
+  if (Object.keys(value).some((key) => !allowed.includes(key))) throw stateError('usage 字段不受支持')
+  const usage = {}
+  for (const key of allowed) {
+    const amount = value[key] ?? 0
+    if (!Number.isSafeInteger(amount) || amount < 0) throw stateError('usage 数值无效')
+    usage[key] = amount
+  }
+  return usage
+}
+
+function normalizeStoredSummary(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw stateError('摘要无效')
+  const allowed = ['overall', 'recent', 'seq', 'overallSeq', 'usage']
+  if (Object.keys(value).some((key) => !allowed.includes(key))) throw stateError('摘要字段不受支持')
+  if (value.overall !== undefined && typeof value.overall !== 'string') throw stateError('overall 类型无效')
+  if (value.recent !== undefined && typeof value.recent !== 'string') throw stateError('recent 类型无效')
+  const overall = value.overall || ''
+  const recent = value.recent || ''
+  if (Array.from(overall).length > 32000 || Array.from(recent).length > 32000) throw stateError('摘要过长')
+  const seq = value.seq ?? -1
+  const overallSeq = value.overallSeq ?? -1
+  if (!Number.isSafeInteger(seq) || seq < -1 || !Number.isSafeInteger(overallSeq) || overallSeq < -1) throw stateError('摘要序号无效')
+  return { overall, recent, seq, overallSeq, usage: normalizeUsage(value.usage) }
+}
+
+function createStateStore(unit, snapshot) {
+  let settings = snapshot.tables?.settings?.[SETTINGS_KEY] || null
+  const summaries = new Map(Object.entries(snapshot.tables?.summaries || {}))
+  let writes = Promise.resolve()
+  const enqueue = (operation) => {
+    const result = writes.then(operation, operation)
+    writes = result.catch(() => {})
+    return result
+  }
+  const nextRecord = (current, value) => ({
+    revision: (Number.isSafeInteger(current?.revision) ? current.revision : 0) + 1,
+    updatedAt: Date.now(),
+    value,
+  })
+  return {
+    getSettings: () => settings,
+    getSummary: (sessionId) => {
+      const record = summaries.get(sessionId) || null
+      return record?.deleted ? null : record
+    },
+    getSummaryRevision: (sessionId) => {
+      const record = summaries.get(sessionId) || null
+      return Number.isSafeInteger(record?.revision) ? record.revision : 0
+    },
+    patchSettings: (baseRevision, patch) => enqueue(async () => {
+      const revision = Number.isSafeInteger(settings?.revision) ? settings.revision : 0
+      if (baseRevision !== revision) throw stateError('revision_conflict', 409, { current: settings })
+      const record = nextRecord(settings, { ...(settings?.value || {}), ...patch })
+      await unit.putRecord('settings', SETTINGS_KEY, record)
+      settings = record
+      return record
+    }),
+    patchSummary: (sessionId, baseRevision, value) => enqueue(async () => {
+      const current = summaries.get(sessionId) || null
+      const revision = Number.isSafeInteger(current?.revision) ? current.revision : 0
+      if (baseRevision !== revision) throw stateError('revision_conflict', 409, { current })
+      const record = { ...nextRecord(current, value), deleted: false }
+      await unit.putRecord('summaries', sessionId, record)
+      summaries.set(sessionId, record)
+      return record
+    }),
+    deleteSummary: (sessionId, baseRevision) => enqueue(async () => {
+      const current = summaries.get(sessionId) || null
+      const revision = Number.isSafeInteger(current?.revision) ? current.revision : 0
+      if (baseRevision !== revision) throw stateError('revision_conflict', 409, { current })
+      if (current?.deleted) return
+      const tombstone = { ...nextRecord(current, null), deleted: true }
+      await unit.putRecord('summaries', sessionId, tombstone)
+      summaries.set(sessionId, tombstone)
+    }),
+    close: async () => {
+      await writes
+      await unit.close()
+    },
+  }
+}
+
+export async function apply(ctx) {
+  const unit = await ctx.storage.backend.get('json').kv.open(STATE_DESCRIPTOR)
+  const store = createStateStore(unit, await unit.loadAll())
+  ctx.effect(() => () => store.close(), 'dsh-better-ux: state storage')
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: STATE_ROUTE,
+    handler: async (req, res) => {
+      try {
+        checkSameOrigin(req)
+        const url = new URL(req.url || STATE_ROUTE, 'http://localhost')
+        if (req.method === 'GET') {
+          const requestedSessionId = url.searchParams.get('sessionId')
+          const sessionId = requestedSessionId ? normalizeSessionId(requestedSessionId) : null
+          sendJson(res, 200, {
+            version: 1,
+            settings: store.getSettings(),
+            summary: sessionId ? store.getSummary(sessionId) : null,
+            summaryRevision: sessionId ? store.getSummaryRevision(sessionId) : 0,
+          })
+          return
+        }
+        if (req.method === 'PATCH') {
+          if (!String(req.headers?.['content-type'] || '').toLowerCase().startsWith('application/json')) throw stateError('Content-Type must be application/json', 415)
+          const input = await readJson(req, STATE_BODY_LIMIT)
+          const baseRevision = normalizeBaseRevision(input.baseRevision)
+          if (input.kind === 'settings') {
+            const settings = await store.patchSettings(baseRevision, flattenSettingsPatch(input.patch))
+            sendJson(res, 200, { settings })
+            return
+          }
+          if (input.kind === 'summary') {
+            const sessionId = normalizeSessionId(input.sessionId)
+            const summary = await store.patchSummary(sessionId, baseRevision, normalizeStoredSummary(input.value))
+            sendJson(res, 200, { summary })
+            return
+          }
+          throw stateError('kind 无效')
+        }
+        if (req.method === 'DELETE') {
+          const sessionId = normalizeSessionId(url.searchParams.get('sessionId'))
+          const rawRevision = url.searchParams.get('baseRevision')
+          if (rawRevision === null) throw stateError('baseRevision 缺失')
+          if (!/^(0|[1-9]\d*)$/.test(rawRevision)) throw stateError('baseRevision 无效')
+          const baseRevision = normalizeBaseRevision(Number(rawRevision))
+          await store.deleteSummary(sessionId, baseRevision)
+          res.writeHead(204, { 'cache-control': 'no-store' })
+          res.end()
+          return
+        }
+        res.setHeader('allow', 'GET, PATCH, DELETE')
+        sendJson(res, 405, { error: 'Method Not Allowed' })
+      } catch (error) {
+        if (res.headersSent || res.destroyed) return
+        if (error?.status === 409) {
+          sendJson(res, 409, { error: 'revision_conflict', current: error.current || null })
+          return
+        }
+        sendJson(res, error?.status || 500, { error: error?.message || '状态同步失败' })
+      }
+    },
+  }), 'dsh-better-ux: state endpoint')
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: ROUTE,
