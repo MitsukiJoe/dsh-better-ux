@@ -1,0 +1,14 @@
+{
+  "version": 3,
+  "task_id": "2026-08-28-preserve-plugin-features-while-fixing-mobile-per",
+  "title": "Preserve plugin features while fixing mobile performance",
+  "status": "completed",
+  "phase": "done",
+  "summary": "Completed all preservation and performance acceptance tickets. Final source hashes eed9d7a0 (Better UX) and 59b888d1 (Inline) pass independent review, Better UX 23/23, Inline 19/19, syntax/diff checks, served-hash verification, restarted-Host manifest/CAS/tombstone and 151-cache constant startup. Chrome 151, actual Safari 26.5, and approved Playwright WebKit 26.5/iPhone 15 preserve search, views, gestures, header, summaries, model pickers, Inline mapping/order, image paste, feature rollback, settings, and desktop rows. Unrelated chat/panel/typing/scroll work produces zero plugin list rebuilds, geometry or semantic/settings scans; Chromium touch drag has no >=50ms long task; detached nodes are bounded and collected in both Chromium and WebKit. Temporary routes, settings, inputs, Host state, browser sessions, and jobs are restored or closed.",
+  "next_action": "",
+  "blockers": [],
+  "spec_ref": ".agent-state/tasks/2026-08-28-preserve-plugin-features-while-fixing-mobile-per/spec.md",
+  "tickets_ref": ".agent-state/tasks/2026-08-28-preserve-plugin-features-while-fixing-mobile-per/tickets.md",
+  "created_at": "2026-08-28T03:20:06.123Z",
+  "updated_at": "2026-08-28T11:11:42.723Z"
+}

@@ -434,6 +434,13 @@ function createStateStore(unit, snapshot) {
       const record = summaries.get(sessionId) || null
       return Number.isSafeInteger(record?.revision) ? record.revision : 0
     },
+    listSummaryManifest: () => Array.from(summaries, ([sessionId, record]) => [
+      sessionId,
+      {
+        revision: Math.max(0, Number.isSafeInteger(record?.revision) ? record.revision : 0),
+        deleted: record?.deleted === true,
+      },
+    ]),
     patchSettings: (baseRevision, patch) => enqueue(async () => {
       const revision = Number.isSafeInteger(settings?.revision) ? settings.revision : 0
       if (baseRevision !== revision) throw stateError('revision_conflict', 409, { current: settings })
@@ -455,7 +462,6 @@ function createStateStore(unit, snapshot) {
       const current = summaries.get(sessionId) || null
       const revision = Number.isSafeInteger(current?.revision) ? current.revision : 0
       if (baseRevision !== revision) throw stateError('revision_conflict', 409, { current })
-      if (current?.deleted) return
       const tombstone = { ...nextRecord(current, null), deleted: true }
       await unit.putRecord('summaries', sessionId, tombstone)
       summaries.set(sessionId, tombstone)
@@ -479,6 +485,12 @@ export async function apply(ctx) {
         checkSameOrigin(req)
         const url = new URL(req.url || STATE_ROUTE, 'http://localhost')
         if (req.method === 'GET') {
+          if (url.searchParams.has('summaries')) {
+            const query = Array.from(url.searchParams.entries())
+            if (query.length !== 1 || query[0][0] !== 'summaries' || query[0][1] !== '1') throw stateError('summaries 查询参数无效')
+            sendJson(res, 200, { version: 1, summaries: store.listSummaryManifest() })
+            return
+          }
           const requestedSessionId = url.searchParams.get('sessionId')
           const sessionId = requestedSessionId ? normalizeSessionId(requestedSessionId) : null
           sendJson(res, 200, {

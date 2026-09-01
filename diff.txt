@@ -1,0 +1,1699 @@
+diff --git a/index.js b/index.js
+index 58582ef..fdd9c9f 100644
+--- a/index.js
++++ b/index.js
+@@ -434,6 +434,13 @@ function createStateStore(unit, snapshot) {
+       const record = summaries.get(sessionId) || null
+       return Number.isSafeInteger(record?.revision) ? record.revision : 0
+     },
++    listSummaryManifest: () => Array.from(summaries, ([sessionId, record]) => [
++      sessionId,
++      {
++        revision: Math.max(0, Number.isSafeInteger(record?.revision) ? record.revision : 0),
++        deleted: record?.deleted === true,
++      },
++    ]),
+     patchSettings: (baseRevision, patch) => enqueue(async () => {
+       const revision = Number.isSafeInteger(settings?.revision) ? settings.revision : 0
+       if (baseRevision !== revision) throw stateError('revision_conflict', 409, { current: settings })
+@@ -479,6 +486,12 @@ export async function apply(ctx) {
+         checkSameOrigin(req)
+         const url = new URL(req.url || STATE_ROUTE, 'http://localhost')
+         if (req.method === 'GET') {
++          if (url.searchParams.has('summaries')) {
++            const query = Array.from(url.searchParams.entries())
++            if (query.length !== 1 || query[0][0] !== 'summaries' || query[0][1] !== '1') throw stateError('summaries 查询参数无效')
++            sendJson(res, 200, { version: 1, summaries: store.listSummaryManifest() })
++            return
++          }
+           const requestedSessionId = url.searchParams.get('sessionId')
+           const sessionId = requestedSessionId ? normalizeSessionId(requestedSessionId) : null
+           sendJson(res, 200, {
+diff --git a/lib/client.js b/lib/client.js
+index 670623c..ecb89dc 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -581,6 +581,7 @@ window.__ModuleLoader__.load({
+       newSession: ["新建会话", "New session"],
+       expandSidebar: ["打开侧边栏", "Open sidebar", "展开侧边栏", "Expand sidebar"],
+       collapseSidebar: ["收起侧边栏", "Collapse sidebar", "关闭侧边栏", "Close sidebar", "折叠侧边栏", "Fold sidebar"],
++      unavailableSidebar: ["无活动会话", "No active session"],
+     }
+     const slotNode = (name) => document.querySelector(`[data-slot="${name}"]`)
+     const sidebarColumnNode = () => slotNode("sidebar")?.parentElement || null
+@@ -636,7 +637,7 @@ window.__ModuleLoader__.load({
+         delete marked.dataset.dshBuxDetailsPanel
+       }
+       const sidePanelHost = document.querySelector("[data-dsh-panel-host]")
+-      const sidePanelToggle = buttonByLabel(sidePanelHost, [...HOST_ARIA.expandSidebar, ...HOST_ARIA.collapseSidebar])
++      const sidePanelToggle = buttonByLabel(sidePanelHost, [...HOST_ARIA.expandSidebar, ...HOST_ARIA.collapseSidebar, ...HOST_ARIA.unavailableSidebar])
+       if (sidePanelHost) sidePanelHost.dataset.dshBuxDetailsPanel = "1"
+       if (sidePanelToggle?.parentElement) sidePanelToggle.parentElement.dataset.dshBuxDetailsToggle = "1"
+       const section = slotNode("settings.section")
+@@ -844,6 +845,7 @@ window.__ModuleLoader__.load({
+     const MOBILE_CSS = `
+ @media (max-width:1023px){
+ html.dsh-no-pinch-zoom,html.dsh-no-pinch-zoom body{touch-action:pan-x pan-y}
++html:has(body.dsh-mobile-active),body.dsh-mobile-active{overflow-x:hidden}
+ .dsh-mobile-frame{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:100%!important}
+ .dsh-mobile-frame>[data-dsh-bux-sidebar-col]{display:none!important}
+ .dsh-mobile-frame>[data-dsh-bux-sidebar-col]:has([data-dsh-bux-settings-panel]){display:block!important;position:fixed;inset:0;width:100%!important;height:100%!important;z-index:80}
+@@ -923,7 +925,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+ .dsh-mobile-view-option:before{content:"";display:inline-block;width:14px;color:var(--dsw-alias-label-primary)}
+ .dsh-mobile-view-option[data-selected="1"]:before{content:"✓"}
+ 
+-[data-dsh-bux-settings-layer]{position:fixed!important;box-sizing:border-box!important;inset:0!important;width:100vw!important;height:100vh!important;height:100dvh!important;padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))!important;overflow:hidden!important;overscroll-behavior:contain}
++[data-dsh-bux-settings-layer]{position:fixed!important;box-sizing:border-box!important;inset:0!important;height:100vh!important;height:100dvh!important;padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))!important;overflow:hidden!important;overscroll-behavior:contain}
+ [data-dsh-bux-settings-panel]{position:relative!important;width:100%!important;max-width:none!important;height:100%!important;max-height:100%!important;flex-direction:column!important}
+ [data-dsh-bux-settings-nav]{box-sizing:border-box;width:100%!important;height:120px!important;min-height:120px!important;flex:0 0 120px!important;overflow:hidden!important}
+ [data-dsh-bux-settings-nav-title]{box-sizing:border-box;width:100%!important;height:32px!important;min-height:32px!important;flex:0 0 32px!important;padding:0 12px!important;display:flex!important;align-items:center!important}
+@@ -988,11 +990,26 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       syncCss()
+       document.head.appendChild(style)
+ 
++      const isDesktop = () => window.innerWidth >= 1024
++      let wasDesktop = null
++
+       const clearNativeMenu = (row) => {
+         row.classList.remove("dsh-inline-menu-redundant")
+         for (const root of row.querySelectorAll("[data-dsh-bux-native-menu]")) delete root.dataset.dshBuxNativeMenu
+       }
+ 
++      const clearAll = () => {
++        for (const bar of document.querySelectorAll(".dsh-inline-acts")) bar.remove()
++        for (const row of document.querySelectorAll("[data-dsh-inline-acts]")) {
++          delete row.dataset.dshInlineActs
++          clearNativeMenu(row)
++        }
++        for (const row of document.querySelectorAll("[data-dsh-bux-session-row]")) {
++          delete row.dataset.dshBuxSessionRow
++          clearNativeMenu(row)
++        }
++      }
++
+       const syncNativeMenu = (row, actions, settings) => {
+         clearNativeMenu(row)
+         const button = nativeSessionButton(row)
+@@ -1008,17 +1025,19 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+ 
+       const enhance = (row) => {
+         if (!isSessionRow(row)) return
+-        row.dataset.dshBuxSessionRow = "1"
++        const desktop = isDesktop()
+         const settings = loadSettings().sessionRow
+         const nativeButton = nativeSessionButton(row)
+         const actions = nativeButton ? directChildWithin(nativeButton, row) : null
+         const existing = row.querySelector(".dsh-inline-acts")
+-        if (!actions || !settings.enabled) {
++        if (!desktop || !actions || !settings.enabled) {
+           existing?.remove()
+           clearNativeMenu(row)
+           delete row.dataset.dshInlineActs
++          delete row.dataset.dshBuxSessionRow
+           return
+         }
++        row.dataset.dshBuxSessionRow = "1"
+         if (existing) {
+           for (const [id, tipKey] of BUTTONS) {
+             const button = existing.querySelector(`[data-act="${id}"]`)
+@@ -1063,12 +1082,20 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       }
+ 
+       const scan = (root) => {
++        if (!isDesktop()) {
++          if (wasDesktop !== false) {
++            wasDesktop = false
++            clearAll()
++          }
++          return
++        }
+         for (const row of sessionRowsIn(root)) enhance(row)
+       }
+ 
+       let watching = null
+       const sidebarRoot = () => sidebarBrowserNode()
+       const observer = new MutationObserver((records) => {
++        if (!isDesktop()) return
+         if (watching && !watching.isConnected) {
+           attachRowObserver()
+           return
+@@ -1085,8 +1112,21 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       })
+       const bootObserver = new MutationObserver(() => attachRowObserver())
+       const attachRowObserver = () => {
++        const desktop = isDesktop()
++        if (!desktop) {
++          if (wasDesktop !== false) {
++            wasDesktop = false
++            observer.disconnect()
++            bootObserver.disconnect()
++            watching = null
++            clearAll()
++          }
++          return
++        }
++        const transitioned = wasDesktop !== true
++        wasDesktop = true
+         const target = sidebarRoot()
+-        if (target === watching) return
++        if (target === watching && !transitioned) return
+         observer.disconnect()
+         watching = target
+         if (target) {
+@@ -1099,35 +1139,37 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       }
+       const startObserve = () => {
+         attachRowObserver()
+-        if (!watching && document.body) bootObserver.observe(document.body, { childList: true, subtree: true })
++        if (isDesktop() && !watching && document.body) bootObserver.observe(document.body, { childList: true, subtree: true })
+       }
+       if (document.body) startObserve()
+       else document.addEventListener("DOMContentLoaded", startObserve, { once: true })
+       const onPointerOver = (event) => {
++        if (!isDesktop()) return
+         const row = event.target.closest?.('[role="treeitem"][aria-selected]')
+         if (row) enhance(row)
+       }
+-      const onChange = () => {
++      const onSync = () => {
+         syncCss()
+         attachRowObserver()
+-        scan(document)
++        if (isDesktop()) scan(document)
++      }
++      const onResize = () => {
++        attachRowObserver()
+       }
+       document.addEventListener("pointerover", onPointerOver, true)
+-      window.addEventListener(CHANGE, onChange)
+-      window.addEventListener(LOCALE_CHANGE, onChange)
++      window.addEventListener(CHANGE, onSync)
++      window.addEventListener(LOCALE_CHANGE, onSync)
++      window.addEventListener("resize", onResize)
+       return () => {
+         observer.disconnect()
+         bootObserver.disconnect()
+         document.removeEventListener("DOMContentLoaded", startObserve)
+         document.removeEventListener("pointerover", onPointerOver, true)
+-        window.removeEventListener(CHANGE, onChange)
+-        window.removeEventListener(LOCALE_CHANGE, onChange)
++        window.removeEventListener(CHANGE, onSync)
++        window.removeEventListener(LOCALE_CHANGE, onSync)
++        window.removeEventListener("resize", onResize)
+         style.remove()
+-        for (const bar of document.querySelectorAll(".dsh-inline-acts")) bar.remove()
+-        for (const row of document.querySelectorAll("[data-dsh-inline-acts]")) {
+-          delete row.dataset.dshInlineActs
+-          clearNativeMenu(row)
+-        }
++        clearAll()
+       }
+     }
+ 
+@@ -1176,6 +1218,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       let sourceExpandAt = 0
+       let sourceExpandTimer = null
+       let lastMobileSettings = ""
++      let cachedOverflowHint = true
+       let imageButton = null
+       let imageInput = null
+       let imageTools = null
+@@ -1577,12 +1620,47 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+         wrap.appendChild(scroll)
+         return { wrap, scroll }
+       }
+-      const updateOverflow = (wrap, scroll) => {
++      let overflowRaf = null
++      let pendingWorkspaceOverflow = false
++      let pendingSessionOverflow = false
++      const flushOverflow = () => {
++        overflowRaf = null
+         if (Date.now() - lastRenderAt > 150) closeSortCapsule()
+-        const max = Math.max(0, scroll.scrollWidth - scroll.clientWidth)
+-        wrap.dataset.overflowLeft = scroll.scrollLeft > 2 ? "1" : "0"
+-        wrap.dataset.overflowRight = max - scroll.scrollLeft > 2 ? "1" : "0"
+-        wrap.dataset.overflowEnabled = mobileSettings().overflowHint ? "1" : "0"
++        const enabled = cachedOverflowHint ? "1" : "0"
++        if (pendingWorkspaceOverflow && workspaceWrap && workspaceScroll) {
++          pendingWorkspaceOverflow = false
++          const max = Math.max(0, workspaceScroll.scrollWidth - workspaceScroll.clientWidth)
++          workspaceWrap.dataset.overflowLeft = workspaceScroll.scrollLeft > 2 ? "1" : "0"
++          workspaceWrap.dataset.overflowRight = max - workspaceScroll.scrollLeft > 2 ? "1" : "0"
++          workspaceWrap.dataset.overflowEnabled = enabled
++        }
++        if (pendingSessionOverflow && sessionWrap && sessionScroll) {
++          pendingSessionOverflow = false
++          const max = Math.max(0, sessionScroll.scrollWidth - sessionScroll.clientWidth)
++          sessionWrap.dataset.overflowLeft = sessionScroll.scrollLeft > 2 ? "1" : "0"
++          sessionWrap.dataset.overflowRight = max - sessionScroll.scrollLeft > 2 ? "1" : "0"
++          sessionWrap.dataset.overflowEnabled = enabled
++        }
++      }
++      const scheduleOverflow = (type = "all") => {
++        if (type === "workspace" || type === "all") pendingWorkspaceOverflow = true
++        if (type === "session" || type === "all") pendingSessionOverflow = true
++        if (overflowRaf === null) {
++          overflowRaf = window.requestAnimationFrame(flushOverflow)
++        }
++      }
++      const cancelPendingOverflow = () => {
++        if (overflowRaf !== null) {
++          window.cancelAnimationFrame(overflowRaf)
++          overflowRaf = null
++        }
++        pendingWorkspaceOverflow = false
++        pendingSessionOverflow = false
++      }
++      const updateOverflow = (wrap, scroll) => {
++        if (wrap === workspaceWrap) scheduleOverflow("workspace")
++        else if (wrap === sessionWrap) scheduleOverflow("session")
++        else scheduleOverflow("all")
+       }
+       const currentView = () => {
+         try {
+@@ -1890,6 +1968,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           target.title = label
+         }
+       }
++      let lastListSignature = null
+       const render = () => {
+         if (!shell) return
+         lastRenderAt = Date.now()
+@@ -1924,6 +2003,34 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+         shell.dataset.flat = flat ? "1" : "0"
+         document.body.classList.toggle("dsh-mobile-flat", flat)
+         workspaceWrap.hidden = flat
++
++        const query = searchQuery.trim().toLowerCase()
++        const mSettings = mobileSettings()
++        const sigParts = [
++          flat ? "1" : "0",
++          selectedGroupKey || "",
++          query,
++          LOCALE.lang,
++          mSettings.longPressDrag ? "1" : "0",
++          mSettings.overflowHint ? "1" : "0",
++        ]
++        if (!flat) {
++          for (const entry of data.groups) {
++            sigParts.push(`w:${entry.key}:${entry.title}:${entry.key === selectedGroupKey ? 1 : 0}:${entry.project ? 1 : 0}`)
++          }
++        }
++        const sessionEntries = (flat ? data.groups.flatMap((entry) => entry.sessions) : data.selectedGroup?.sessions || []).filter((entry) => !query || (entry.title + " " + entry.time).toLowerCase().includes(query))
++        for (const entry of sessionEntries) {
++          sigParts.push(`s:${entry.id}:${entry.title}:${entry.time}:${entry.selected ? 1 : 0}:${entry.pendingInteraction || ""}:${entry.running ? 1 : 0}:${entry.runningSubagentCount}:${entry.completed ? 1 : 0}:${entry.status ? 1 : 0}`)
++        }
++        const signature = sigParts.join("|")
++        if (signature === lastListSignature) {
++          scheduleOverflow("all")
++          anchorSortCapsule()
++          return
++        }
++        lastListSignature = signature
++
+         workspaceScroll.replaceChildren()
+         if (!flat) for (const entry of data.groups) {
+           const item = makeItem(entry, "workspace")
+@@ -1931,8 +2038,6 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           bindLongPress(item, entry, "workspace")
+         }
+         sessionScroll.replaceChildren()
+-        const query = searchQuery.trim().toLowerCase()
+-        const sessionEntries = (flat ? data.groups.flatMap((entry) => entry.sessions) : data.selectedGroup?.sessions || []).filter((entry) => !query || (entry.title + " " + entry.time).toLowerCase().includes(query))
+         if (sessionEntries.length) {
+           for (const entry of sessionEntries) {
+             const item = makeItem(entry, "session")
+@@ -1945,12 +2050,12 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           empty.textContent = tt("empty.sessions")
+           sessionScroll.appendChild(empty)
+         }
+-        onWorkspaceScroll?.()
+-        onSessionScroll?.()
++        scheduleOverflow("all")
+         anchorSortCapsule()
+         window.dispatchEvent(new Event("dsh-mobile-shell-rendered"))
+       }
+       const buildShell = () => {
++        lastListSignature = null
+         shell = document.createElement("div")
+         shell.className = "dsh-mobile-shell"
+         shell.setAttribute("role", "region")
+@@ -1988,8 +2093,8 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+         workspaceScroll = workspaceRow.scroll
+         sessionWrap = sessionRow.wrap
+         sessionScroll = sessionRow.scroll
+-        onWorkspaceScroll = () => updateOverflow(workspaceWrap, workspaceScroll)
+-        onSessionScroll = () => updateOverflow(sessionWrap, sessionScroll)
++        onWorkspaceScroll = () => scheduleOverflow("workspace")
++        onSessionScroll = () => scheduleOverflow("session")
+         workspaceScroll.addEventListener("scroll", onWorkspaceScroll, { passive: true })
+         sessionScroll.addEventListener("scroll", onSessionScroll, { passive: true })
+         shell.append(workspaceWrap, sessionWrap)
+@@ -2077,6 +2182,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       }
+       const sync = () => {
+         const settings = mobileSettings()
++        cachedOverflowHint = Boolean(settings.overflowHint)
+         conversationHeaderExpanded = settings.headerExpanded !== false
+         lastMobileSettings = JSON.stringify(settings)
+         const active = settings.enabled && window.innerWidth <= 1023
+@@ -2107,6 +2213,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           closeSearch(false)
+           closeSortCapsule()
+           removeImageUpload()
++          cancelPendingOverflow()
+           if (workspaceScroll && onWorkspaceScroll) workspaceScroll.removeEventListener("scroll", onWorkspaceScroll)
+           if (sessionScroll && onSessionScroll) sessionScroll.removeEventListener("scroll", onSessionScroll)
+           onWorkspaceScroll = null
+@@ -2114,6 +2221,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           stopSessionHeightObserver()
+           shell?.remove()
+           shell = null
++          lastListSignature = null
+         }
+       }
+       const schedule = () => {
+@@ -2123,6 +2231,67 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           sync()
+         })
+       }
++      const isConversationNode = (node) => {
++        const conv = slotNode("conversation")
++        return Boolean(conv && (node === conv || conv.contains(node)))
++      }
++      const ALL_HOST_ARIA_LABELS = Object.values(HOST_ARIA).flat()
++      const HOST_ARIA_SELECTOR = ALL_HOST_ARIA_LABELS.map((label) => `[aria-label="${label}"]`).join(",")
++      const SEMANTIC_LAYOUT_SELECTOR = '[data-slot="sidebar"],[data-slot="sidebar.workspaces"],[data-slot="conversation"],[data-slot="conversation.composer.bar"],[data-slot="conversation.session.header"],[data-slot="conversation.input.model"],[data-slot="details"],[data-slot="settings.section"],[data-slot="settings.trigger"],[data-dsh-panel-host],[data-dsh-bux-sidebar-col],[data-dsh-bux-center-col],[data-dsh-bux-details-col],[data-dsh-bux-details-panel],[data-dsh-bux-details-toggle],[data-dsh-bux-settings-panel],[data-dsh-bux-settings-layer],textarea'
++
++      const isSemanticButton = (btn) => {
++        if (!btn || btn.nodeType !== 1) return false
++        const aria = btn.getAttribute?.("aria-label")?.trim()
++        const text = btn.textContent?.trim()
++        if (aria && ALL_HOST_ARIA_LABELS.includes(aria)) return true
++        if (text && ALL_HOST_ARIA_LABELS.includes(text)) return true
++        if (aria && btn.closest?.('[role="treeitem"]')) return true
++        return false
++      }
++
++      const isSemanticCandidate = (node) => {
++        if (!node || node.nodeType !== 1) return false
++        if (node.matches(SEMANTIC_LAYOUT_SELECTOR) || Boolean(node.querySelector?.(SEMANTIC_LAYOUT_SELECTOR))) return true
++        if (node.matches(HOST_ARIA_SELECTOR) || Boolean(node.querySelector?.(HOST_ARIA_SELECTOR))) return true
++        if (node.matches('button, [role="button"]') && isSemanticButton(node)) return true
++        const buttons = node.querySelectorAll?.('button, [role="button"]')
++        if (buttons?.length) {
++          for (const btn of buttons) {
++            if (isSemanticButton(btn)) return true
++          }
++        }
++        return false
++      }
++
++      const isTrackedNodeRemoved = (node) => {
++        if (!node || node.nodeType !== 1) return false
++        if (watchingFrame && (node === watchingFrame || node.contains(watchingFrame))) return true
++        if (watchedSource && (node === watchedSource || node.contains(watchedSource))) return true
++        if (imageComposer && (node === imageComposer || node.contains(imageComposer))) return true
++        return false
++      }
++
++      const hasSemanticMutation = (records) => {
++        for (const record of records) {
++          if (record.type === "attributes") {
++            if (record.attributeName === "aria-label") {
++              const aria = record.target?.getAttribute?.("aria-label")?.trim()
++              if (aria && ALL_HOST_ARIA_LABELS.includes(aria)) return true
++              if (record.target?.matches?.(SEMANTIC_LAYOUT_SELECTOR)) return true
++            }
++            continue
++          }
++          if (record.type === "childList") {
++            for (const node of record.addedNodes) {
++              if (isSemanticCandidate(node)) return true
++            }
++            for (const node of record.removedNodes) {
++              if (isTrackedNodeRemoved(node) || isSemanticCandidate(node)) return true
++            }
++          }
++        }
++        return false
++      }
+       let watchedSource = null
+       const observeSource = () => {
+         const column = sidebarColumnNode()
+@@ -2132,7 +2301,20 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+         if (column) sourceObserver?.observe(column, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "aria-selected", "aria-expanded", "aria-label"] })
+       }
+       let watchingFrame = null
+-      const bootObserver = new MutationObserver(() => attachFrameObserver())
++      const bootObserver = new MutationObserver((records) => {
++        if (!hasSemanticMutation(records)) return
++        const frame = markHostSemantics().frame
++        if (frame !== watchingFrame) {
++          attachFrameObserver()
++          return
++        }
++        if (sidebarColumnNode() !== watchedSource) {
++          observeSource()
++          schedule()
++        }
++        if (composerBarNode() !== imageComposer) syncImageUpload()
++        if (!frame) schedule()
++      })
+       const attachFrameObserver = () => {
+         if (!observer) return
+         const frame = markHostSemantics().frame
+@@ -2140,26 +2322,43 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+         observer.disconnect()
+         watchingFrame = frame
+         if (frame) {
+-          observer.observe(frame, { childList: true, subtree: true })
++          observer.observe(frame, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label"] })
+           observeSource()
+           schedule()
+         } else if (document.body) {
+-          bootObserver.observe(document.body, { childList: true })
++          bootObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label"] })
+         }
+       }
+       observer = new MutationObserver((records) => {
++        if (!hasSemanticMutation(records)) return
+         if (watchingFrame && !watchingFrame.isConnected) {
+           attachFrameObserver()
+           return
+         }
+         markHostSemantics()
+-        if (sidebarColumnNode() !== watchedSource) observeSource()
++        const sourceChanged = sidebarColumnNode() !== watchedSource
++        if (sourceChanged) observeSource()
+         if (composerBarNode() !== imageComposer) syncImageUpload()
+-        schedule()
++        if (sourceChanged) {
++          schedule()
++          return
++        }
++        let hasRelevant = false
++        for (const record of records) {
++          if (record.type === "attributes") {
++            hasRelevant = true
++            break
++          }
++          if (!isConversationNode(record.target)) {
++            hasRelevant = true
++            break
++          }
++        }
++        if (hasRelevant) schedule()
+       })
+       sourceObserver = new MutationObserver(() => schedule())
+       attachFrameObserver()
+-      if (document.body) bootObserver.observe(document.body, { childList: true })
++      if (document.body) bootObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label"] })
+       const stopSessions = ctx.sessions.list.subscribe(() => schedule())
+       const onDocumentClick = (event) => {
+         const menuItem = event.target.closest?.('[role="menuitem"]')
+@@ -2206,6 +2405,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       return () => {
+         window.clearTimeout(pressTimer)
+         closeSortCapsule()
++        cancelPendingOverflow()
+         observer.disconnect()
+         bootObserver.disconnect()
+         sourceObserver?.disconnect()
+@@ -2236,6 +2436,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+         onSessionScroll = null
+         shell?.remove()
+         shell = null
++        lastListSignature = null
+         applyPinchLock(false)
+         style.remove()
+       }
+@@ -2255,13 +2456,35 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+         if (window.innerWidth <= 1023) return clamp(settings.mobile)
+         return clamp(settings.desktop)
+       }
++      const restoreElement = (element, state = original.get(element)) => {
++        if (!state) return
++        for (const [property, value] of Object.entries(state.inline)) {
++          if (value.value) element.style.setProperty(property, value.value, value.priority)
++          else element.style.removeProperty(property)
++        }
++      }
++      const discardDetached = (root) => {
++        if (!root || root.nodeType !== 1 || root.isConnected) return
++        pendingNodes.delete(root)
++        if (original.has(root)) {
++          restoreElement(root, original.get(root))
++          original.delete(root)
++        }
++        const descendants = root.querySelectorAll?.("*")
++        if (descendants) {
++          for (let index = 0; index < descendants.length; index += 1) {
++            const element = descendants[index]
++            pendingNodes.delete(element)
++            if (original.has(element)) {
++              restoreElement(element, original.get(element))
++              original.delete(element)
++            }
++          }
++        }
++      }
+       const restore = () => {
+         for (const [element, state] of original) {
+-          if (!element.isConnected) continue
+-          for (const [property, value] of Object.entries(state.inline)) {
+-            if (value.value) element.style.setProperty(property, value.value, value.priority)
+-            else element.style.removeProperty(property)
+-          }
++          restoreElement(element, state)
+         }
+         original.clear()
+         appliedRatio = 100
+@@ -2360,8 +2583,13 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       }
+       const observer = new MutationObserver((records) => {
+         if (applying || appliedRatio === 100) return
+-        for (const record of records) for (const node of record.addedNodes) {
+-          if (node.nodeType === 1 && !node.closest?.('.dsh-mobile-shell')) pendingNodes.add(node)
++        for (const record of records) {
++          for (const node of record.removedNodes) {
++            if (node.nodeType === 1 && !node.isConnected) discardDetached(node)
++          }
++          for (const node of record.addedNodes) {
++            if (node.nodeType === 1 && !node.closest?.('.dsh-mobile-shell')) pendingNodes.add(node)
++          }
+         }
+         if (pendingNodes.size && mutationRaf === null) mutationRaf = window.requestAnimationFrame(flushAdded)
+       })
+@@ -2815,6 +3043,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+             if (!stillArchived()) return true
+             if (!stateRes.ok) return retryableStatus(stateRes.status) ? false : true
+             const state = await stateRes.json().catch(() => ({}))
++            if (!stillArchived()) return true
+             if (!state.summary) return true
+             baseRevision = state.summary.revision
+           }
+@@ -2824,6 +3053,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           if (res.ok) return true
+           if (res.status !== 409) return retryableStatus(res.status) ? false : true
+           const data = await res.json().catch(() => ({}))
++          if (!stillArchived()) return true
+           if (!data.current || data.current.deleted) return true
+           if (!Number.isSafeInteger(data.current.revision)) return false
+           baseRevision = data.current.revision
+@@ -2834,45 +3064,175 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       }
+     }
+ 
+-    function clearSummary(sessionId) {
+-      const key = String(sessionId || "")
+-      const cached = key ? loadSummary(key) : null
+-      try { localStorage.removeItem(summaryCacheKey(sessionId)) } catch {}
+-      if (key && !summaryDeleteTokens.has(key)) {
+-        const token = {}
++    function startSummaryArchiveCleanup(ctx) {
++      const owner = {}
++      const entries = new Map()
++      let active = true
++      let initialized = false
++      let archived = new Set()
++      let hostState = null
++      let deleteQueue = Promise.resolve()
++      let reconcileGeneration = 0
++      let resolveReady
++      const ready = new Promise((resolve) => { resolveReady = resolve })
++
++      const owns = (entry) => active && entries.get(entry.sessionId) === entry && summaryDeleteTokens.get(entry.sessionId) === entry.token
++      const cancelEntry = (entry) => {
++        if (entry.token.retryTimer !== null) window.clearTimeout(entry.token.retryTimer)
++        entry.token.retryTimer = null
++        if (summaryDeleteTokens.get(entry.sessionId) === entry.token) summaryDeleteTokens.delete(entry.sessionId)
++      }
++      const removeLocalCache = (entry, cacheKey = summaryCacheKey(entry.sessionId)) => {
++        try {
++          const raw = localStorage.getItem(cacheKey)
++          if (raw) {
++            const value = JSON.parse(raw)
++            if (Number.isSafeInteger(value?.serverRevision) && value.serverRevision > 0) entry.knownRevision = value.serverRevision
++          }
++        } catch {}
++        try { localStorage.removeItem(cacheKey) } catch {}
++        entry.localCleared = true
++      }
++      const createEntry = (sessionId, fresh) => {
++        const key = String(sessionId || "")
++        if (!key) return null
++        const previous = entries.get(key)
++        if (previous) cancelEntry(previous)
++        const token = { owner, retryTimer: null, retryDelay: 1000, running: null, complete: false }
++        const entry = { sessionId: key, token, fresh, knownRevision: null, localCleared: false, deleteStarted: false, reconciled: false }
++        entries.set(key, entry)
+         summaryDeleteTokens.set(key, token)
+-        const runDelete = async (delay = 1000) => {
+-          const deleted = await deleteSummaryFromHost(key, cached?.serverRevision, token)
+-          if (!deleted && summaryDeleteTokens.get(key) === token) {
+-            window.setTimeout(() => {
+-              if (summaryDeleteTokens.get(key) === token) runDelete(Math.min(30000, delay * 2))
+-            }, delay)
++        return entry
++      }
++      const runDelete = (entry, knownRevision = entry.knownRevision) => {
++        if (!owns(entry) || entry.token.complete) return Promise.resolve(true)
++        if (Number.isSafeInteger(knownRevision) && knownRevision > 0) entry.knownRevision = knownRevision
++        entry.deleteStarted = true
++        if (entry.token.running) return entry.token.running
++        const attempt = async () => {
++          const deleted = await deleteSummaryFromHost(entry.sessionId, entry.knownRevision, entry.token)
++          if (!owns(entry)) return true
++          if (deleted) {
++            entry.token.complete = true
++            entry.reconciled = true
++            return true
+           }
++          const delay = entry.token.retryDelay
++          entry.token.retryDelay = Math.min(30000, delay * 2)
++          entry.token.retryTimer = window.setTimeout(() => {
++            entry.token.retryTimer = null
++            if (owns(entry)) runDelete(entry)
++          }, delay)
++          return false
+         }
+-        runDelete()
++        entry.token.running = deleteQueue.catch(() => {}).then(attempt).finally(() => {
++          if (summaryDeleteTokens.get(entry.sessionId) === entry.token) entry.token.running = null
++        })
++        deleteQueue = entry.token.running
++        return entry.token.running
+       }
+-    }
+-
+-    function startSummaryArchiveCleanup(ctx) {
+-      try {
+-        for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+-          const key = localStorage.key(index)
+-          if (key?.startsWith(LEGACY_SUMMARY_CACHE_PREFIX)) localStorage.removeItem(key)
++      const reconcileEntry = async (entry) => {
++        if (!owns(entry) || entry.reconciled || !hostState) return
++        if (hostState.kind === "legacy") {
++          await runDelete(entry)
++          return
+         }
+-      } catch {}
+-      const clearArchived = () => {
+-        const archived = new Set(ctx.workspaces.list.getSnapshot()?.archivedSessionIds || [])
+-        for (const sessionId of summaryDeleteTokens.keys()) {
+-          if (!archived.has(sessionId)) summaryDeleteTokens.delete(sessionId)
++        const meta = hostState.summaries.get(entry.sessionId)
++        if (meta && !meta.deleted) {
++          await runDelete(entry, meta.revision)
++          return
++        }
++        if (entry.fresh) {
++          await runDelete(entry, entry.knownRevision)
++          return
++        }
++        entry.reconciled = true
++        entry.token.complete = true
++      }
++      const reconcileAll = async () => {
++        if (!active || !initialized || !hostState) return
++        const generation = ++reconcileGeneration
++        let processed = 0
++        for (const entry of [...entries.values()]) {
++          if (!active || generation !== reconcileGeneration) return
++          if (processed > 0 && processed % 25 === 0) {
++            await yieldToMain()
++            if (!active || generation !== reconcileGeneration) return
++          }
++          processed += 1
++          await reconcileEntry(entry)
++          if (!active || generation !== reconcileGeneration) return
+         }
+-        for (const sessionId of archived) clearSummary(sessionId)
+       }
+-      clearArchived()
+-      const unsubscribe = ctx.workspaces.list.subscribe(clearArchived)
+-      return () => {
++      const initializeBaseline = (nextArchived) => {
++        initialized = true
++        archived = nextArchived
++        for (const sessionId of archived) createEntry(sessionId, false)
++        const cacheKeys = []
++        try {
++          for (let index = 0; index < localStorage.length; index += 1) {
++            const key = localStorage.key(index)
++            if (key) cacheKeys.push(key)
++          }
++        } catch {}
++        for (const key of cacheKeys) {
++          if (key.startsWith(LEGACY_SUMMARY_CACHE_PREFIX)) {
++            try { localStorage.removeItem(key) } catch {}
++            continue
++          }
++          if (!key.startsWith(SUMMARY_CACHE_PREFIX)) continue
++          let sessionId
++          try { sessionId = decodeURIComponent(key.slice(SUMMARY_CACHE_PREFIX.length)) } catch { continue }
++          const entry = entries.get(sessionId)
++          if (entry) removeLocalCache(entry, key)
++        }
++        resolveReady()
++        if (hostState) reconcileAll().catch(() => {})
++      }
++      const syncArchived = () => {
++        if (!active) return
++        const snapshot = ctx.workspaces.list.getSnapshot()
++        if (snapshot?.phase !== "ready") return
++        const nextArchived = new Set(snapshot.archivedSessionIds || [])
++        if (!initialized) {
++          initializeBaseline(nextArchived)
++          return
++        }
++        if (nextArchived.size === archived.size && [...nextArchived].every((sessionId) => archived.has(sessionId))) return
++        for (const [sessionId, entry] of entries) {
++          if (!nextArchived.has(sessionId)) {
++            cancelEntry(entry)
++            entries.delete(sessionId)
++          }
++        }
++        for (const sessionId of nextArchived) {
++          if (archived.has(sessionId)) continue
++          const entry = createEntry(sessionId, true)
++          if (!entry) continue
++          removeLocalCache(entry)
++          if (hostState) reconcileEntry(entry).catch(() => {})
++        }
++        archived = nextArchived
++      }
++      const publishManifest = async (result) => {
++        if (!active || !result || (result.kind !== "manifest" && result.kind !== "legacy")) return
++        hostState = result
++        if (!initialized) await ready
++        if (active) await reconcileAll()
++      }
++
++      syncArchived()
++      const unsubscribe = ctx.workspaces.list.subscribe(syncArchived)
++      const stop = () => {
++        if (!active) return
++        active = false
++        reconcileGeneration += 1
++        resolveReady()
+         unsubscribe()
+-        summaryDeleteTokens.clear()
++        for (const entry of entries.values()) cancelEntry(entry)
++        entries.clear()
+       }
++      return { publishManifest, stop }
+     }
+ 
+     function loadSummary(sessionId) {
+@@ -2897,6 +3257,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+     }
+ 
+     function storeSummary(sessionId, value) {
++      if (summaryDeleteTokens.has(String(sessionId || ""))) return false
+       try {
+         localStorage.setItem(summaryCacheKey(sessionId), JSON.stringify({
+           overall: normalizeSummary(value.overall),
+@@ -2909,10 +3270,76 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           syncRecent: value.syncRecent === true,
+           usage: normalizeSummaryUsage(value.usage),
+         }))
+-      } catch {}
++        return true
++      } catch {
++        return false
++      }
++    }
++
++    async function yieldToMain() {
++      if (typeof scheduler !== "undefined" && typeof scheduler.yield === "function") {
++        return scheduler.yield()
++      }
++      return new Promise((resolve) => setTimeout(resolve, 0))
++    }
++
++    async function readSummaryManifest(signal) {
++      if (signal?.aborted) return { kind: "abort" }
++      let res
++      try {
++        res = await fetch(STATE_ROUTE + "?summaries=1", { signal })
++      } catch {
++        return { kind: signal?.aborted ? "abort" : "retry" }
++      }
++      if (signal?.aborted) return { kind: "abort" }
++      if (!res.ok) return { kind: retryableStatus(res.status) ? "retry" : "abort" }
++      let data
++      try {
++        data = await res.json()
++      } catch {
++        return { kind: "abort" }
++      }
++      if (signal?.aborted) return { kind: "abort" }
++      if (!data || typeof data !== "object" || Array.isArray(data)) return { kind: "abort" }
++
++      if (
++        data.version === 1 &&
++        (!Object.prototype.hasOwnProperty.call(data, "summaries") || data.summaries === undefined) &&
++        Object.prototype.hasOwnProperty.call(data, "summary") &&
++        Object.prototype.hasOwnProperty.call(data, "summaryRevision")
++      ) {
++        return { kind: "legacy" }
++      }
++
++      if (data.version !== 1 || !Array.isArray(data.summaries)) {
++        return { kind: "abort" }
++      }
++
++      const map = new Map()
++      for (const item of data.summaries) {
++        if (!Array.isArray(item) || item.length !== 2) return { kind: "abort" }
++        const [sessionId, meta] = item
++        if (typeof sessionId !== "string" || sessionId.length === 0 || sessionId.length > 512) {
++          return { kind: "abort" }
++        }
++        if (map.has(sessionId)) return { kind: "abort" }
++        if (!meta || typeof meta !== "object" || Array.isArray(meta)) return { kind: "abort" }
++        if (!Number.isSafeInteger(meta.revision) || meta.revision < 0) return { kind: "abort" }
++        if (typeof meta.deleted !== "boolean") return { kind: "abort" }
++        map.set(sessionId, { revision: meta.revision, deleted: meta.deleted })
++      }
++
++      return { kind: "manifest", summaries: map }
+     }
+ 
+-    async function migrateCachedSummariesToHostUnlocked() {
++    async function migrateCachedSummariesToHostUnlocked(signal, publishManifest) {
++      if (signal?.aborted) return
++      const manifestResult = await readSummaryManifest(signal)
++      if (signal?.aborted || manifestResult.kind === "abort") return
++      if (manifestResult.kind === "retry") return "retry"
++      if (publishManifest) await publishManifest(manifestResult)
++      if (signal?.aborted) return
++
+       const sessionIds = []
+       try {
+         for (let index = 0; index < localStorage.length; index += 1) {
+@@ -2921,19 +3348,87 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           try { sessionIds.push(decodeURIComponent(key.slice(SUMMARY_CACHE_PREFIX.length))) } catch {}
+         }
+       } catch {}
++
++      let processedCount = 0
+       for (const sessionId of sessionIds) {
++        if (signal?.aborted) return
++        if (summaryDeleteTokens.has(sessionId)) continue
++        if (processedCount > 0 && processedCount % 25 === 0) {
++          await yieldToMain()
++          if (signal?.aborted) return
++          if (summaryDeleteTokens.has(sessionId)) continue
++        }
++        processedCount += 1
++
++        const blocked = () => summaryDeleteTokens.has(sessionId)
+         const local = loadSummary(sessionId)
+         if (!local.overall && !local.recent) continue
++
++        let state = null
++        if (manifestResult.kind === "legacy") {
++          let stateRes
++          try {
++            stateRes = await fetch(STATE_ROUTE + "?sessionId=" + encodeURIComponent(sessionId), { signal })
++          } catch {
++            if (signal?.aborted) return
++            continue
++          }
++          if (signal?.aborted) return
++          if (blocked()) continue
++          if (!stateRes.ok) continue
++          try {
++            state = await stateRes.json()
++          } catch {
++            if (signal?.aborted) return
++            continue
++          }
++          if (signal?.aborted) return
++        } else {
++          const liveMeta = manifestResult.summaries.get(sessionId)
++          if (!liveMeta) {
++            state = { summary: null, summaryRevision: 0 }
++          } else if (liveMeta.deleted) {
++            if (liveMeta.revision >= local.serverRevision && !local.syncOverall && !local.syncRecent) {
++              if (signal?.aborted) return
++              try { localStorage.removeItem(summaryCacheKey(sessionId)) } catch {}
++              continue
++            }
++            state = { summary: null, summaryRevision: liveMeta.revision }
++          } else {
++            if (liveMeta.revision === local.serverRevision && !local.syncOverall && !local.syncRecent) {
++              continue
++            }
++            let stateRes
++            try {
++              stateRes = await fetch(STATE_ROUTE + "?sessionId=" + encodeURIComponent(sessionId), { signal })
++            } catch {
++              if (signal?.aborted) return
++              continue
++            }
++            if (signal?.aborted) return
++            if (!stateRes.ok) continue
++            try {
++              state = await stateRes.json()
++            } catch {
++              if (signal?.aborted) return
++              continue
++            }
++            if (signal?.aborted) return
++          }
++        }
++
++        if (!state || typeof state !== "object") continue
++
+         const saveResolved = (value, serverRevision, clearedFields = { overall: true, recent: true }) => {
++          if (signal?.aborted || blocked()) return
+           storeSummary(sessionId, resolveSummaryCache(loadSummary(sessionId), value, serverRevision, clearedFields))
+         }
++
+         try {
+-          const stateRes = await fetch(STATE_ROUTE + "?sessionId=" + encodeURIComponent(sessionId))
+-          if (!stateRes.ok) continue
+-          const state = await stateRes.json().catch(() => ({}))
+           let baseRevision = state.summary?.revision ?? (Number.isSafeInteger(state.summaryRevision) ? state.summaryRevision : 0)
+           let fields = { overall: true, recent: true }
+           let candidate = normalizedSummaryValue(local)
++
+           if (state.summary?.value) {
+             const server = normalizedSummaryValue(state.summary.value)
+             fields = {
+@@ -2947,25 +3442,45 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+             const merged = mergeSummaryValues(local, server, fields)
+             candidate = merged.value
+             fields = merged.localFields
++            if (!fields.overall && !fields.recent) {
++              saveResolved(server, baseRevision)
++              continue
++            }
+           } else {
+             const dirty = local.syncOverall || local.syncRecent
+-            if (baseRevision > local.serverRevision) {
++            if (baseRevision > local.serverRevision || (baseRevision === local.serverRevision && !dirty && baseRevision > 0)) {
++              if (signal?.aborted) return
+               try { localStorage.removeItem(summaryCacheKey(sessionId)) } catch {}
+               continue
+             }
+             fields = baseRevision === 0
+               ? { overall: true, recent: true }
+               : { overall: local.syncOverall, recent: local.syncRecent }
++            if (!fields.overall && !fields.recent) continue
+             candidate = mergeSummaryValues(local, normalizedSummaryValue(null), fields).value
+           }
++
+           const requestedFields = { ...fields }
+           while (true) {
+-            const patchRes = await fetch(STATE_ROUTE, {
+-              method: "PATCH",
+-              headers: { "content-type": "application/json" },
+-              body: JSON.stringify({ kind: "summary", sessionId, baseRevision, value: candidate }),
+-            })
++            if (signal?.aborted) return
++            if (blocked()) break
++            let patchRes
++            try {
++              patchRes = await fetch(STATE_ROUTE, {
++                method: "PATCH",
++                headers: { "content-type": "application/json" },
++                body: JSON.stringify({ kind: "summary", sessionId, baseRevision, value: candidate }),
++                signal,
++              })
++            } catch {
++              if (signal?.aborted) return
++              break
++            }
++            if (signal?.aborted) return
++            if (blocked()) break
+             const data = await patchRes.json().catch(() => ({}))
++            if (signal?.aborted) return
++            if (blocked()) break
+             if (patchRes.ok) {
+               const record = data.summary || data
+               saveResolved(candidate, Number.isSafeInteger(record?.revision) ? record.revision : baseRevision + 1, requestedFields)
+@@ -2975,6 +3490,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+             const currentRecord = data.current || data.summary || data
+             if (!currentRecord || !Number.isSafeInteger(currentRecord.revision)) break
+             if (currentRecord.deleted && currentRecord.revision > local.serverRevision) {
++              if (signal?.aborted) return
+               try { localStorage.removeItem(summaryCacheKey(sessionId)) } catch {}
+               break
+             }
+@@ -2992,9 +3508,77 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       }
+     }
+ 
+-    async function migrateCachedSummariesToHost() {
+-      if (navigator.locks?.request) return navigator.locks.request("dsh-better-ux:summary-migration", migrateCachedSummariesToHostUnlocked)
+-      return migrateCachedSummariesToHostUnlocked()
++    async function migrateCachedSummariesToHost(signal, publishManifest) {
++      if (signal?.aborted) return
++      if (navigator.locks?.request) {
++        try {
++          return await navigator.locks.request("dsh-better-ux:summary-migration", signal ? { signal } : {}, () => migrateCachedSummariesToHostUnlocked(signal, publishManifest))
++        } catch (err) {
++          if (signal?.aborted) return
++          throw err
++        }
++      }
++      return migrateCachedSummariesToHostUnlocked(signal, publishManifest)
++    }
++
++    function startCachedSummaryMigration(publishManifest) {
++      const controller = new AbortController()
++      const signal = controller.signal
++      let idleId = null
++      let timeoutId = null
++      let retryId = null
++      let retryDelay = 1000
++      let running = false
++
++      const scheduleRetry = () => {
++        if (signal.aborted || retryId !== null) return
++        const delay = retryDelay
++        retryDelay = Math.min(30000, retryDelay * 2)
++        retryId = window.setTimeout(() => {
++          retryId = null
++          run()
++        }, delay)
++      }
++      const run = () => {
++        idleId = null
++        timeoutId = null
++        if (signal.aborted || running) return
++        running = true
++        migrateCachedSummariesToHost(signal, publishManifest).then((outcome) => {
++          running = false
++          if (outcome === "retry") scheduleRetry()
++        }).catch(() => {
++          running = false
++        })
++      }
++
++      if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
++        idleId = window.requestIdleCallback(run, { timeout: 2000 })
++      } else if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
++        timeoutId = window.setTimeout(run, 1000)
++      } else if (typeof setTimeout === "function") {
++        timeoutId = setTimeout(run, 1000)
++      }
++
++      return () => {
++        controller.abort()
++        if (idleId !== null && typeof window !== "undefined" && typeof window.cancelIdleCallback === "function") {
++          window.cancelIdleCallback(idleId)
++          idleId = null
++        }
++        if (timeoutId !== null) {
++          if (typeof window !== "undefined" && typeof window.clearTimeout === "function") {
++            window.clearTimeout(timeoutId)
++          } else if (typeof clearTimeout === "function") {
++            clearTimeout(timeoutId)
++          }
++          timeoutId = null
++        }
++        if (retryId !== null) {
++          window.clearTimeout(retryId)
++          retryId = null
++        }
++      }
+     }
+ 
+     function useConversationSummarySettings() {
+@@ -3067,43 +3651,168 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           if (frame) return
+           frame = requestAnimationFrame(measure)
+         }
+-        const observer = new ResizeObserver(schedule)
+-        let observedComposer = composerTextareaNode()
+-        let observedFlow = document.querySelector("[data-chat-flow]")
+-        const targets = [
+-          slotNode("conversation")?.parentElement,
+-          observedComposer,
+-          observedFlow,
+-          slotNode("conversation.session.header")?.querySelector("header"),
+-          document.querySelector(".dsh-mobile-shell"),
+-        ].filter(Boolean)
+-        for (const target of targets) observer.observe(target)
+-        const geometryObserver = new MutationObserver(() => {
++
++        const targetSignatures = new Map()
++        let observedCenter = null
++        let observedComposer = null
++        let observedFlow = null
++        let observedHeader = null
++        let observedShell = null
++
++        const getTargetSignature = (target, entry) => {
++          let width = 0
++          let height = 0
++          if (entry?.borderBoxSize?.[0]) {
++            width = entry.borderBoxSize[0].inlineSize
++            height = entry.borderBoxSize[0].blockSize
++          } else if (entry?.contentRect) {
++            width = entry.contentRect.width
++            height = entry.contentRect.height
++          } else if (target) {
++            width = target.offsetWidth || 0
++            height = target.offsetHeight || 0
++          }
++          const roundW = Math.round(width)
++          const roundH = Math.round(height)
++          if (target === observedHeader || target === observedShell) {
++            return `${roundW}x${roundH}`
++          }
++          return `${roundW}`
++        }
++
++        const handleResize = (entries) => {
++          if (!entries || !entries.length) {
++            schedule()
++            return
++          }
++          let changed = false
++          for (let i = 0; i < entries.length; i++) {
++            const entry = entries[i]
++            const target = entry.target
++            if (!target) continue
++            const nextSig = getTargetSignature(target, entry)
++            const prevSig = targetSignatures.get(target)
++            if (prevSig !== nextSig) {
++              targetSignatures.set(target, nextSig)
++              changed = true
++            }
++          }
++          if (changed) {
++            schedule()
++          }
++        }
++
++        const observer = new ResizeObserver(handleResize)
++
++        const updateTarget = (current, next) => {
++          if (current === next) return current
++          if (current) {
++            observer.unobserve(current)
++            targetSignatures.delete(current)
++          }
++          if (next) {
++            targetSignatures.delete(next)
++            observer.observe(next)
++          }
++          return next
++        }
++
++        const refreshTargets = () => {
++          const nextCenter = slotNode("conversation")?.parentElement || null
+           const nextComposer = composerTextareaNode()
++          const nextFlow = document.querySelector("[data-chat-flow]")
++          const nextHeader = slotNode("conversation.session.header")?.querySelector("header") || null
++          const nextShell = document.querySelector(".dsh-mobile-shell")
++
++          let changed = false
++          if (nextCenter !== observedCenter) {
++            observedCenter = updateTarget(observedCenter, nextCenter)
++            changed = true
++          }
+           if (nextComposer !== observedComposer) {
+-            if (observedComposer) observer.unobserve(observedComposer)
+-            observedComposer = nextComposer
+-            if (observedComposer) observer.observe(observedComposer)
++            observedComposer = updateTarget(observedComposer, nextComposer)
++            changed = true
+           }
+-          const nextFlow = document.querySelector("[data-chat-flow]")
+           if (nextFlow !== observedFlow) {
+-            if (observedFlow) observer.unobserve(observedFlow)
+-            observedFlow = nextFlow
+-            if (observedFlow) observer.observe(observedFlow)
++            observedFlow = updateTarget(observedFlow, nextFlow)
++            changed = true
++          }
++          if (nextHeader !== observedHeader) {
++            observedHeader = updateTarget(observedHeader, nextHeader)
++            changed = true
++          }
++          if (nextShell !== observedShell) {
++            observedShell = updateTarget(observedShell, nextShell)
++            changed = true
++          }
++          if (changed) {
++            schedule()
++          }
++        }
++
++        refreshTargets()
++
++        const TARGET_SELECTOR = "textarea, header, [data-chat-flow], [data-slot='conversation'], [data-slot='conversation.session.header'], [data-slot='conversation.composer.bar'], .dsh-mobile-shell"
++        const mayContainTarget = (node) => {
++          if (!node || node.nodeType !== 1) return false
++          if (typeof node.matches === "function" && node.matches(TARGET_SELECTOR)) return true
++          if (typeof node.querySelector === "function" && node.querySelector(TARGET_SELECTOR)) return true
++          return false
++        }
++
++        const geometryObserver = new MutationObserver((mutations) => {
++          let needsRefresh = false
++          if (
++            (observedCenter && !observedCenter.isConnected) ||
++            (observedComposer && !observedComposer.isConnected) ||
++            (observedFlow && !observedFlow.isConnected) ||
++            (observedHeader && !observedHeader.isConnected) ||
++            (observedShell && !observedShell.isConnected)
++          ) {
++            needsRefresh = true
++          }
++          if (!needsRefresh) {
++            for (let i = 0; i < mutations.length; i++) {
++              const mutation = mutations[i]
++              if (mutation.type === "childList") {
++                const added = mutation.addedNodes
++                for (let j = 0; j < added.length; j++) {
++                  if (mayContainTarget(added[j])) {
++                    needsRefresh = true
++                    break
++                  }
++                }
++                if (needsRefresh) break
++                const removed = mutation.removedNodes
++                for (let j = 0; j < removed.length; j++) {
++                  if (mayContainTarget(removed[j])) {
++                    needsRefresh = true
++                    break
++                  }
++                }
++                if (needsRefresh) break
++              }
++            }
++          }
++          if (needsRefresh) {
++            refreshTargets()
+           }
+-          schedule()
+         })
++
+         const geometryRoots = new Set([slotNode("conversation")?.parentElement, composerBarNode()?.parentElement || composerBarNode()].filter(Boolean))
+         for (const root of geometryRoots) geometryObserver.observe(root, { childList: true, subtree: true })
+         window.addEventListener("resize", schedule)
+         window.visualViewport?.addEventListener("resize", schedule)
++        window.addEventListener("dsh-mobile-shell-rendered", refreshTargets)
+         measure()
+         return () => {
+           if (frame) cancelAnimationFrame(frame)
+           observer.disconnect()
+           geometryObserver.disconnect()
++          targetSignatures.clear()
+           window.removeEventListener("resize", schedule)
+           window.visualViewport?.removeEventListener("resize", schedule)
++          window.removeEventListener("dsh-mobile-shell-rendered", refreshTargets)
+         }
+       }, [])
+       return geometry
+@@ -3401,12 +4110,13 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+         return () => clearTimeout(panelExitTimer.current)
+       }, [expanded])
+       const fetchSessionSummary = async (targetSessionId) => {
+-        if (!targetSessionId) return
++        if (!targetSessionId || summaryDeleteTokens.has(String(targetSessionId))) return
+         try {
+           const res = await fetch(`${STATE_ROUTE}?sessionId=${encodeURIComponent(String(targetSessionId))}`)
+           if (!res.ok) return
+           if (sessionRef.current !== targetSessionId || !activeRef.current) return
+           const data = await res.json().catch(() => ({}))
++          if (summaryDeleteTokens.has(String(targetSessionId))) return
+           const serverSummaryRecord = data.summary
+           const local = loadSummary(targetSessionId)
+           if (serverSummaryRecord && typeof serverSummaryRecord === "object" && serverSummaryRecord.value) {
+@@ -3460,6 +4170,8 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       const patchSessionSummaryToHost = async (targetSessionId, summaryData, explicitBaseRev, changedFields = { overall: true, recent: true }) => {
+         if (!targetSessionId) return
+         const key = String(targetSessionId)
++        const canWrite = () => !summaryDeleteTokens.has(key)
++        if (!canWrite()) return
+         const requestedFields = { overall: changedFields.overall === true, recent: changedFields.recent === true }
+         const pending = pendingSummaryWrites.current.get(key) || { count: 0, overall: false, recent: false }
+         pendingSummaryWrites.current.set(key, {
+@@ -3468,6 +4180,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           recent: pending.recent || requestedFields.recent,
+         })
+         const applyTombstone = (serverRevision) => {
++          if (!canWrite()) return
+           const current = loadSummary(targetSessionId)
+           const cleared = { ...EMPTY_SUMMARY, revision: current.revision + 1, serverRevision }
+           storeSummary(targetSessionId, cleared)
+@@ -3477,6 +4190,7 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           }
+         }
+         const applyRecord = (value, serverRevision) => {
++          if (!canWrite()) return
+           const updated = resolveSummaryCache(loadSummary(targetSessionId), value, serverRevision, requestedFields)
+           storeSummary(targetSessionId, updated)
+           if (sessionRef.current === targetSessionId && activeRef.current) {
+@@ -3489,12 +4203,15 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+           let candidate = normalizedSummaryValue(summaryData)
+           let fields = requestedFields
+           while (true) {
++            if (!canWrite()) return
+             const res = await fetch(STATE_ROUTE, {
+               method: "PATCH",
+               headers: { "content-type": "application/json" },
+               body: JSON.stringify({ kind: "summary", sessionId: key, baseRevision, value: candidate }),
+             })
++            if (!canWrite()) return
+             const data = await res.json().catch(() => ({}))
++            if (!canWrite()) return
+             if (res.ok) {
+               const record = data.summary || data
+               const serverRevision = Number.isSafeInteger(record?.revision) ? record.revision : baseRevision + 1
+@@ -4056,26 +4773,103 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+     }
+ 
+     function startSettingsIcon() {
++      let disposed = false
+       let scheduled = false
++      let currentRoot = null
++
++      const getSettingsRoot = () => slotNode("sidebar.settings") || document.querySelector("[data-dsh-bux-settings-panel]") || null
++
++      const rebind = () => {
++        if (disposed) return
++        const nextRoot = getSettingsRoot()
++        if (nextRoot === currentRoot && (currentRoot === null || currentRoot.isConnected)) return
++        localObserver.disconnect()
++        currentRoot = (nextRoot && nextRoot.isConnected) ? nextRoot : null
++        if (currentRoot) {
++          localObserver.observe(currentRoot, { childList: true, subtree: true, characterData: true })
++        }
++      }
++
+       const mark = () => {
++        if (disposed) return
+         scheduled = false
+         markHostSemantics()
+         for (const button of document.querySelectorAll("[data-dsh-bux-settings-cell]")) {
+           if (button.textContent.trim() === tt("section.label")) button.dataset.dshBuxNav = "1"
+           else delete button.dataset.dshBuxNav
+         }
++        rebind()
+       }
++
+       const schedule = () => {
+-        if (scheduled) return
++        if (disposed || scheduled) return
+         scheduled = true
+-        queueMicrotask(mark)
++        queueMicrotask(() => {
++          if (disposed) return
++          mark()
++        })
++      }
++
++      const SETTINGS_OWNER_SELECTOR = '[data-slot="sidebar.settings"],[data-slot="settings.section"],[data-slot="settings.trigger"],[data-dsh-bux-settings-panel],[data-dsh-bux-settings-layer],[data-dsh-bux-settings-cell],[data-dsh-bux-settings-nav]'
++
++      const isSettingsCandidate = (node) => {
++        if (!node || node.nodeType !== 1) return false
++        return node.matches(SETTINGS_OWNER_SELECTOR) || Boolean(node.querySelector?.(SETTINGS_OWNER_SELECTOR))
++      }
++
++      const isTrackedRootRemoved = (node) => {
++        if (!node || node.nodeType !== 1 || !currentRoot) return false
++        return node === currentRoot || node.contains(currentRoot)
++      }
++
++      const localObserver = new MutationObserver(() => {
++        if (disposed) return
++        schedule()
++      })
++
++      const discoveryObserver = new MutationObserver((records) => {
++        if (disposed) return
++        let relevant = false
++        for (const record of records) {
++          if (record.type === "childList") {
++            for (const node of record.addedNodes) {
++              if (isSettingsCandidate(node)) {
++                relevant = true
++                break
++              }
++            }
++            if (relevant) break
++            for (const node of record.removedNodes) {
++              if (isTrackedRootRemoved(node) || isSettingsCandidate(node)) {
++                relevant = true
++                break
++              }
++            }
++            if (relevant) break
++          }
++        }
++        if (relevant) schedule()
++      })
++
++      if (document.body) {
++        discoveryObserver.observe(document.body, { childList: true, subtree: true })
+       }
+-      const observer = new MutationObserver(schedule)
+-      const root = slotNode("sidebar.settings") || document.body
+-      observer.observe(root, { childList: true, subtree: true, characterData: true })
++
+       mark()
++
++      const onLocaleChange = () => {
++        if (disposed) return
++        schedule()
++      }
++      window.addEventListener(LOCALE_CHANGE, onLocaleChange)
++
+       return () => {
+-        observer.disconnect()
++        disposed = true
++        scheduled = false
++        currentRoot = null
++        discoveryObserver.disconnect()
++        localObserver.disconnect()
++        window.removeEventListener(LOCALE_CHANGE, onLocaleChange)
+         for (const button of document.querySelectorAll("[data-dsh-bux-nav]")) delete button.dataset.dshBuxNav
+       }
+     }
+@@ -4127,8 +4921,8 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+       const stopMobile = startMobileLayout(ctx)
+       const stopFontScale = startFontScale()
+       const stopSummary = startConversationSummary(ctx)
+-      const stopSummaryArchiveCleanup = startSummaryArchiveCleanup(ctx)
+-      migrateCachedSummariesToHost()
++      const summaryArchiveCleanup = startSummaryArchiveCleanup(ctx)
++      const stopSummaryMigration = startCachedSummaryMigration(summaryArchiveCleanup.publishManifest)
+       const stopSettingsIcon = startSettingsIcon()
+       ctx.slots.inject("settings.section", () => ctx.slots.register(
+         { name: "settings.section", id: "dsh-better-ux", order: 35, label: () => tt("section.label"), locale: NS },
+@@ -4140,7 +4934,8 @@ body.dsh-mobile-active.dsh-conversation-header-collapsed [data-dsh-bux-session-h
+         stopMobile()
+         stopFontScale()
+         stopSummary()
+-        stopSummaryArchiveCleanup()
++        summaryArchiveCleanup.stop()
++        stopSummaryMigration()
+         stopSettingsIcon()
+         window.removeEventListener("storage", syncStorage)
+         document.removeEventListener("visibilitychange", onVisibilityChange)
+diff --git a/test/client-load.test.mjs b/test/client-load.test.mjs
+index 28d1478..cfaba8f 100644
+--- a/test/client-load.test.mjs
++++ b/test/client-load.test.mjs
+@@ -1,4 +1,5 @@
+ import assert from 'node:assert/strict'
++import { readFile } from 'node:fs/promises'
+ import test from 'node:test'
+ 
+ test('loads the client bundle through the official module loader', async () => {
+@@ -22,3 +23,106 @@ test('loads the client bundle through the official module loader', async () => {
+   assert.deepEqual(plugin.inject, ['slots', 'sessions', 'workspaces', 'modelDirectories', 'locale'])
+   delete globalThis.window
+ })
++
++test('reconciles archive epochs without rescanning unchanged snapshots', async () => {
++  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
++  const start = source.indexOf('    function startSummaryArchiveCleanup(ctx) {')
++  const end = source.indexOf('    function loadSummary(sessionId)', start)
++  assert.ok(start >= 0 && end > start)
++
++  const summaryDeleteTokens = new Map()
++  const storage = new Map([
++    ['dsh-better-ux:summary:v1:old', 'legacy'],
++    ['dsh-better-ux:summary:v2:a', JSON.stringify({ serverRevision: 5 })],
++  ])
++  const io = { get: 0, remove: 0 }
++  const localStorage = {
++    get length() { return storage.size },
++    key: (index) => [...storage.keys()][index] ?? null,
++    getItem: (key) => {
++      io.get += 1
++      return storage.get(key) ?? null
++    },
++    removeItem: (key) => {
++      io.remove += 1
++      storage.delete(key)
++    },
++  }
++  const deletes = []
++  const deleteSummaryFromHost = async (sessionId, revision, token) => {
++    deletes.push({ sessionId, revision, live: summaryDeleteTokens.get(sessionId) === token })
++    return true
++  }
++  const summaryCacheKey = (sessionId) => 'dsh-better-ux:summary:v2:' + encodeURIComponent(String(sessionId))
++  const factory = new Function(
++    'summaryDeleteTokens',
++    'deleteSummaryFromHost',
++    'summaryCacheKey',
++    'localStorage',
++    'window',
++    'yieldToMain',
++    'LEGACY_SUMMARY_CACHE_PREFIX',
++    'SUMMARY_CACHE_PREFIX',
++    'return (' + source.slice(start, end).trim() + ')',
++  )
++  const startCleanup = factory(
++    summaryDeleteTokens,
++    deleteSummaryFromHost,
++    summaryCacheKey,
++    localStorage,
++    { setTimeout, clearTimeout },
++    async () => {},
++    'dsh-better-ux:summary:v1:',
++    'dsh-better-ux:summary:v2:',
++  )
++
++  let snapshot = { phase: 'pending', archivedSessionIds: [] }
++  const subscribers = new Set()
++  const list = {
++    getSnapshot: () => snapshot,
++    subscribe: (callback) => {
++      subscribers.add(callback)
++      return () => subscribers.delete(callback)
++    },
++  }
++  const emit = async (next) => {
++    snapshot = next
++    for (const callback of [...subscribers]) callback()
++    await new Promise(setImmediate)
++    await new Promise(setImmediate)
++  }
++  const ctx = { workspaces: { list } }
++  const first = startCleanup(ctx)
++
++  assert.equal(summaryDeleteTokens.size, 0)
++  await emit({ phase: 'ready', archivedSessionIds: ['a', 'b'] })
++  await first.publishManifest({
++    kind: 'manifest',
++    summaries: new Map([['a', { revision: 8, deleted: false }]]),
++  })
++  assert.deepEqual(deletes.map(({ sessionId, revision }) => ({ sessionId, revision })), [
++    { sessionId: 'a', revision: 8 },
++  ])
++  assert.equal(storage.has('dsh-better-ux:summary:v1:old'), false)
++  assert.equal(storage.has(summaryCacheKey('a')), false)
++
++  io.get = 0
++  io.remove = 0
++  for (let index = 0; index < 50; index += 1) {
++    await emit({ phase: 'ready', archivedSessionIds: index % 2 ? ['a', 'b'] : ['b', 'a'] })
++  }
++  assert.deepEqual(io, { get: 0, remove: 0 })
++
++  storage.set(summaryCacheKey('c'), JSON.stringify({ serverRevision: 0 }))
++  await emit({ phase: 'ready', archivedSessionIds: ['a', 'b', 'c'] })
++  await emit({ phase: 'ready', archivedSessionIds: ['a', 'b'] })
++  await emit({ phase: 'ready', archivedSessionIds: ['a', 'b', 'c'] })
++  assert.deepEqual(deletes.map(({ sessionId }) => sessionId), ['a', 'c', 'c'])
++  assert.ok(deletes.every(({ live }) => live))
++
++  const second = startCleanup(ctx)
++  first.stop()
++  assert.equal(summaryDeleteTokens.size, 3)
++  second.stop()
++  assert.equal(summaryDeleteTokens.size, 0)
++})
+diff --git a/test/host-endpoint.test.mjs b/test/host-endpoint.test.mjs
+index f217544..ed9d137 100644
+--- a/test/host-endpoint.test.mjs
++++ b/test/host-endpoint.test.mjs
+@@ -227,6 +227,24 @@ test('persists shared settings and summaries with serialized CAS writes', async
+   await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1'), empty)
+   assert.deepEqual(JSON.parse(empty.body), { version: 1, settings: null, summary: null, summaryRevision: 0 })
+ 
++  const tolerantQuery = new Response()
++  await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?foo=ignored'), tolerantQuery)
++  assert.deepEqual(JSON.parse(tolerantQuery.body), { version: 1, settings: null, summary: null, summaryRevision: 0 })
++
++  for (const selector of [
++    '?summaries',
++    '?summaries=0',
++    '?summaries=01',
++    '?summaries=1&summaries=1',
++    '?summaries=1&sessionId=session-sync',
++    '?summaries=1&sessionId=',
++    '?summaries=1&foo=ignored',
++  ]) {
++    const invalidSelector = new Response()
++    await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1' + selector), invalidSelector)
++    assert.equal(invalidSelector.status, 400)
++  }
++
+   const malformed = new Response()
+   await handler(request('{', 'PATCH', '/api/dsh-better-ux/state-v1'), malformed)
+   assert.equal(malformed.status, 400)
+@@ -296,6 +314,18 @@ test('persists shared settings and summaries with serialized CAS writes', async
+   assert.equal(summaryPut.status, 200)
+   assert.equal(JSON.parse(summaryPut.body).summary.revision, 1)
+ 
++  const summariesBeforeLiveManifest = structuredClone(storage.tables.summaries)
++  const liveManifestResponse = new Response()
++  await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?summaries=1'), liveManifestResponse)
++  assert.equal(liveManifestResponse.status, 200)
++  const liveManifest = JSON.parse(liveManifestResponse.body)
++  assert.deepEqual(liveManifest, {
++    version: 1,
++    summaries: [['session-sync', { revision: 1, deleted: false }]],
++  })
++  assert.equal(Object.hasOwn(liveManifest.summaries[0][1], 'value'), false)
++  assert.deepEqual(storage.tables.summaries, summariesBeforeLiveManifest)
++
+   const readBack = new Response()
+   await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?sessionId=session-sync'), readBack)
+   const state = JSON.parse(readBack.body)
+@@ -303,6 +333,10 @@ test('persists shared settings and summaries with serialized CAS writes', async
+   assert.equal(state.summaryRevision, 1)
+   assert.equal(state.settings.revision, 2)
+ 
++  const tolerantSessionRead = new Response()
++  await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?sessionId=session-sync&foo=ignored'), tolerantSessionRead)
++  assert.deepEqual(JSON.parse(tolerantSessionRead.body), state)
++
+   const summaryUpdate = new Response()
+   await handler(request({
+     kind: 'summary',
+@@ -334,6 +368,18 @@ test('persists shared settings and summaries with serialized CAS writes', async
+   assert.equal(storage.tables.summaries['session-sync'].deleted, true)
+   assert.equal(storage.tables.summaries['session-sync'].revision, 3)
+ 
++  const summariesBeforeDeletedManifest = structuredClone(storage.tables.summaries)
++  const deletedManifestResponse = new Response()
++  await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?summaries=1'), deletedManifestResponse)
++  assert.equal(deletedManifestResponse.status, 200)
++  const deletedManifest = JSON.parse(deletedManifestResponse.body)
++  assert.deepEqual(deletedManifest, {
++    version: 1,
++    summaries: [['session-sync', { revision: 3, deleted: true }]],
++  })
++  assert.equal(Object.hasOwn(deletedManifest.summaries[0][1], 'value'), false)
++  assert.deepEqual(storage.tables.summaries, summariesBeforeDeletedManifest)
++
+   const afterDelete = new Response()
+   await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?sessionId=session-sync'), afterDelete)
+   assert.equal(JSON.parse(afterDelete.body).summary, null)

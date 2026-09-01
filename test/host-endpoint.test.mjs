@@ -227,6 +227,24 @@ test('persists shared settings and summaries with serialized CAS writes', async 
   await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1'), empty)
   assert.deepEqual(JSON.parse(empty.body), { version: 1, settings: null, summary: null, summaryRevision: 0 })
 
+  const tolerantQuery = new Response()
+  await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?foo=ignored'), tolerantQuery)
+  assert.deepEqual(JSON.parse(tolerantQuery.body), { version: 1, settings: null, summary: null, summaryRevision: 0 })
+
+  for (const selector of [
+    '?summaries',
+    '?summaries=0',
+    '?summaries=01',
+    '?summaries=1&summaries=1',
+    '?summaries=1&sessionId=session-sync',
+    '?summaries=1&sessionId=',
+    '?summaries=1&foo=ignored',
+  ]) {
+    const invalidSelector = new Response()
+    await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1' + selector), invalidSelector)
+    assert.equal(invalidSelector.status, 400)
+  }
+
   const malformed = new Response()
   await handler(request('{', 'PATCH', '/api/dsh-better-ux/state-v1'), malformed)
   assert.equal(malformed.status, 400)
@@ -296,12 +314,28 @@ test('persists shared settings and summaries with serialized CAS writes', async 
   assert.equal(summaryPut.status, 200)
   assert.equal(JSON.parse(summaryPut.body).summary.revision, 1)
 
+  const summariesBeforeLiveManifest = structuredClone(storage.tables.summaries)
+  const liveManifestResponse = new Response()
+  await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?summaries=1'), liveManifestResponse)
+  assert.equal(liveManifestResponse.status, 200)
+  const liveManifest = JSON.parse(liveManifestResponse.body)
+  assert.deepEqual(liveManifest, {
+    version: 1,
+    summaries: [['session-sync', { revision: 1, deleted: false }]],
+  })
+  assert.equal(Object.hasOwn(liveManifest.summaries[0][1], 'value'), false)
+  assert.deepEqual(storage.tables.summaries, summariesBeforeLiveManifest)
+
   const readBack = new Response()
   await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?sessionId=session-sync'), readBack)
   const state = JSON.parse(readBack.body)
   assert.equal(state.summary.value.overall, '跨浏览器摘要')
   assert.equal(state.summaryRevision, 1)
   assert.equal(state.settings.revision, 2)
+
+  const tolerantSessionRead = new Response()
+  await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?sessionId=session-sync&foo=ignored'), tolerantSessionRead)
+  assert.deepEqual(JSON.parse(tolerantSessionRead.body), state)
 
   const summaryUpdate = new Response()
   await handler(request({
@@ -333,6 +367,18 @@ test('persists shared settings and summaries with serialized CAS writes', async 
   assert.equal(removed.status, 204)
   assert.equal(storage.tables.summaries['session-sync'].deleted, true)
   assert.equal(storage.tables.summaries['session-sync'].revision, 3)
+
+  const summariesBeforeDeletedManifest = structuredClone(storage.tables.summaries)
+  const deletedManifestResponse = new Response()
+  await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?summaries=1'), deletedManifestResponse)
+  assert.equal(deletedManifestResponse.status, 200)
+  const deletedManifest = JSON.parse(deletedManifestResponse.body)
+  assert.deepEqual(deletedManifest, {
+    version: 1,
+    summaries: [['session-sync', { revision: 3, deleted: true }]],
+  })
+  assert.equal(Object.hasOwn(deletedManifest.summaries[0][1], 'value'), false)
+  assert.deepEqual(storage.tables.summaries, summariesBeforeDeletedManifest)
 
   const afterDelete = new Response()
   await handler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?sessionId=session-sync'), afterDelete)
@@ -369,6 +415,49 @@ test('persists shared settings and summaries with serialized CAS writes', async 
   }, 'PATCH', '/api/dsh-better-ux/state-v1'), recreated)
   assert.equal(recreated.status, 200)
   assert.equal(JSON.parse(recreated.body).summary.revision, 4)
+
+  const unicodeSessionId = '😀'.repeat(257)
+  const unicodeSummaryPut = new Response()
+  await reopenedHandler(request({
+    kind: 'summary',
+    sessionId: unicodeSessionId,
+    baseRevision: 0,
+    value: { overall: 'Unicode 摘要', recent: '', seq: 1, overallSeq: 1, usage: null },
+  }, 'PATCH', '/api/dsh-better-ux/state-v1'), unicodeSummaryPut)
+  assert.equal(unicodeSummaryPut.status, 200)
+  const unicodeManifestResponse = new Response()
+  await reopenedHandler(request(undefined, 'GET', '/api/dsh-better-ux/state-v1?summaries=1'), unicodeManifestResponse)
+  const unicodeManifest = JSON.parse(unicodeManifestResponse.body)
+  assert.deepEqual(
+    unicodeManifest.summaries.find(([sessionId]) => sessionId === unicodeSessionId),
+    [unicodeSessionId, { revision: 1, deleted: false }],
+  )
+
+  const emptyDelete = new Response()
+  await reopenedHandler(request(undefined, 'DELETE', '/api/dsh-better-ux/state-v1?sessionId=session-empty&baseRevision=0'), emptyDelete)
+  assert.equal(emptyDelete.status, 204)
+  assert.deepEqual(storage.tables.summaries['session-empty'], {
+    revision: 1,
+    updatedAt: storage.tables.summaries['session-empty'].updatedAt,
+    value: null,
+    deleted: true,
+  })
+
+  const repeatedEmptyDelete = new Response()
+  await reopenedHandler(request(undefined, 'DELETE', '/api/dsh-better-ux/state-v1?sessionId=session-empty&baseRevision=1'), repeatedEmptyDelete)
+  assert.equal(repeatedEmptyDelete.status, 204)
+  assert.equal(storage.tables.summaries['session-empty'].revision, 2)
+  assert.equal(storage.tables.summaries['session-empty'].deleted, true)
+
+  const staleEmptyCreate = new Response()
+  await reopenedHandler(request({
+    kind: 'summary',
+    sessionId: 'session-empty',
+    baseRevision: 1,
+    value: { overall: 'stale', recent: '', seq: 1, overallSeq: 1, usage: null },
+  }, 'PATCH', '/api/dsh-better-ux/state-v1'), staleEmptyCreate)
+  assert.equal(staleEmptyCreate.status, 409)
+  assert.deepEqual(JSON.parse(staleEmptyCreate.body).current, storage.tables.summaries['session-empty'])
 
   for (const dispose of disposers.reverse()) await dispose()
   assert.equal(storage.closeCount, 2)
