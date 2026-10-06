@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import { readFile } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import test from 'node:test'
 import { apply, DEFAULT_OVERALL_INSTRUCTION, DEFAULT_RECENT_INSTRUCTION, IMMUTABLE_SUMMARY_INSTRUCTION } from '../index.js'
@@ -461,4 +462,21 @@ test('persists shared settings and summaries with serialized CAS writes', async 
 
   for (const dispose of disposers.reverse()) await dispose()
   assert.equal(storage.closeCount, 2)
+})
+
+test('accepts every client settings leaf the browser half will sync', async () => {
+  const sliceLiteral = async (file, marker, terminator) => {
+    const source = await readFile(new URL(file, import.meta.url), 'utf8')
+    const start = source.indexOf(marker)
+    const end = source.indexOf(terminator, start)
+    assert.ok(start >= 0 && end > start)
+    return new Function('return (' + source.slice(start + marker.length, end).trim() + ')')()
+  }
+  const defaults = await sliceLiteral('../lib/client.js', '    const DEFAULTS = ', '\n\n    const NS = ')
+  const types = await sliceLiteral('../index.js', 'const SHARED_SETTING_TYPES = Object.freeze(', ')\n\nfunction stateError(')
+
+  const clientLeaves = Object.entries(defaults).flatMap(([category, values]) => Object.keys(values).map((key) => category + '.' + key))
+  const hostLeaves = Object.keys(types).filter((key) => !key.startsWith('workspaceView.'))
+  assert.deepEqual(clientLeaves.filter((key) => !Object.hasOwn(types, key)), [])
+  assert.deepEqual(hostLeaves.filter((key) => !clientLeaves.includes(key)), [])
 })

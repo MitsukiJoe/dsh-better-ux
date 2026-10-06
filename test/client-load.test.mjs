@@ -20,7 +20,8 @@ test('loads the client bundle through the official module loader', async () => {
   }
   await import('../lib/client.js?client-load-test')
   assert.equal(typeof plugin.apply, 'function')
-  assert.deepEqual(plugin.inject, ['slots', 'sessions', 'workspaces', 'modelDirectories', 'locale'])
+  assert.deepEqual(plugin.inject, ['slots', 'sessions', 'workspaces', 'modelDirectories', 'locale', 'remote', 'remote.session'])
+  assert.deepEqual(plugin.inject, JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).dsh.client.inject)
   delete globalThis.window
 })
 

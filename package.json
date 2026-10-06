@@ -1,6 +1,6 @@
 {
   "name": "dsh-better-ux",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Web UX kit for DeepSeek Harness: hover session actions and a large model picker, with more surface polish to come.",
   "license": "MIT",
   "author": "MitsukiJoe",
@@ -55,7 +55,9 @@
         "sessions",
         "workspaces",
         "modelDirectories",
-        "locale"
+        "locale",
+        "remote",
+        "remote.session"
       ]
     },
     "market": {

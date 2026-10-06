@@ -16,7 +16,7 @@
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DSH-plugin-4F8EF7?style=plastic" alt="DSH plugin" /></a>
   <a href="#install"><img src="https://img.shields.io/badge/platform-web-111111?style=plastic" alt="Platform: web" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f?style=plastic" alt="License: MIT" /></a>
-  <a href="package.json"><img src="https://img.shields.io/badge/version-0.2.1-informational?style=plastic" alt="Version: 0.2.1" /></a>
+  <a href="https://www.npmjs.com/package/dsh-better-ux"><img src="https://img.shields.io/npm/v/dsh-better-ux?style=plastic" alt="npm version" /></a>
 </p>
 
 <p>
@@ -25,12 +25,14 @@
 
 </div>
 
-A web UX kit for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), with four independently configurable interface improvements:
+A web UX kit for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), with six independently configurable interface improvements:
 
 - **Session row actions** — hover idle, running, or newly activated sessions to show Rename / Fork / Archive; keep `⋯` when another plugin adds menu actions
 - **Model picker** — replace the cramped two-level menu with one overlay containing search, providers, reasoning levels, and Auto Vision twin actions on their original model cards
 - **Mobile optimization** — hide the host sidebar on phones and tablets and render a custom horizontal bar; workspaces, sessions, status, overflow menus, view options, and sorting remain mapped to the host. The stock mobile composer has no photo control, so the plugin adds an image button next to `+`
 - **Global font scale** — set independent 10%–200% ratios for font size, line height, and padding on mobile (phone/tablet) and desktop/other viewports; mobile defaults to 80%, and step buttons change the value by 5%
+- **My message navigation** — two floating buttons in the conversation jump to the previous or next message you sent; they show and hide together with the host Back to bottom button
+- **Conversation summary** — off by default; pick a summary model and the session header gains a Conversation status panel holding a whole-conversation and a recent-task summary, cached locally and synced through the plugin's own host endpoint
 
 All plugin-owned labels follow the current DSH language (Chinese or English) and update immediately when it changes. Mapped host actions reuse the host's localized labels where available. This release targets DSH builds with the built-in locale service.
 
@@ -95,6 +97,24 @@ Mobile (phone/tablet) and desktop/other ratios are stored separately. Enter any 
 
 ![Conversation content at the 80% desktop ratio](docs/font-scale-effect.png)
 
+### My message navigation
+
+Two buttons stacked at the bottom-right of the conversation column jump to the previous or next message you sent, so long runs of tool output and assistant replies no longer have to be scrolled by hand. Visibility follows the host Back to bottom button: when the host hides it, the buttons go with it and cannot be clicked or focused. On desktop they rest at 50% opacity and become fully opaque on hover or keyboard focus; on touch they are always fully opaque. A button dims when there is nothing left in that direction.
+
+Reaching the top with **Load earlier messages at the top** enabled clicks the host's own pagination control once and then jumps to the newly loaded message. That intent is bounded: if the load never produces an earlier message of yours, it is dropped after 10 seconds instead of moving the viewport later on. Turn the option off to keep navigation inside the messages already loaded.
+
+### Conversation summary
+
+Off by default, because it needs a model: choose one, then turn the category on. The session header gains a **Conversation status** panel that keeps two model-written summaries for the open session — **Whole conversation** and **Recent task**.
+
+- **Model** — any provider and model from the host model directory, plus reasoning effort when that model exposes levels. Conversation content is sent to the model you pick, so choose one you are willing to send the session to.
+- **Instructions** — optional per-field instructions. Left empty, the two fields fall back to “summarize what this session did in 400 characters or fewer” and “summarize what this round did in 100 characters or fewer”; those limits belong to the default instructions only and do not truncate anything. One formatting rule — a line break after every full stop — always applies and cannot be overridden.
+- **Display mode** — **Large card** anchors to the conversation column above the content, **Small card** shows a side panel and degrades to a ball when there is not enough room, **Collapsed** always shows only the ball. The ball can expand on hover, on click, or both.
+- **Shortcut** — collapse or expand the summary body with a shortcut, `Tab` by default. Click the field in settings and press any combination that is not purely modifiers to rebind it; `X` clears it. Inside inputs and editable content, Tab keeps its native behaviour.
+- **Persistence** — summaries are cached in `localStorage` and synced through the plugin's own host endpoint, so they survive reloads and are shared across browsers and devices on the same DSH Host. Archiving a session removes its summary. Each generation reports its token usage in the panel.
+
+This category needs the plugin's host half loaded. If the running host is older than the browser half, the panel says so and asks you to restart DSH Web.
+
 ### Settings
 
 Open **Settings → Better UX**.
@@ -107,6 +127,8 @@ Open **Settings → Better UX**.
 | Model picker | Master switch, search, provider filter, reasoning levels, close on pick |
 | Mobile optimization | Master switch, long-press reorder capsule, no auto-focus on session switch, horizontal overflow hints, right-sidebar compatibility, disable page pinch-zoom |
 | Global font scale | Master switch, mobile ratio, desktop/other ratio |
+| My message navigation | Master switch, load earlier messages at the top |
+| Conversation summary | Master switch, whole conversation, recent task, summary model and reasoning effort, display mode, collapse shortcut, per-field instructions, ball hover/click expansion |
 
 Disabling a category restores the corresponding original DSH interface.
 
