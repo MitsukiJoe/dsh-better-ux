@@ -96,6 +96,7 @@ test('serves isolated incremental summaries without appending session events', a
       return factory()
     },
     storage: storage.service,
+    connection: { requestRejection: () => undefined },
     webServer: {
       register(route) {
         registeredPath = route.path
@@ -199,6 +200,61 @@ test('serves isolated incremental summaries without appending session events', a
   assert.equal(JSON.parse(missingRouteRes.body).error, '请先选择摘要模型')
 })
 
+test('reads session events through the host snapshotEvents API', async () => {
+  let handler
+  const calls = []
+  const events = [
+    { seq: 0, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '新输入' }] } },
+    { seq: 1, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '新输出' }] } } },
+  ]
+  const session = {
+    id: 'session-2',
+    seq: events.length,
+    snapshotEvents: () => events,
+  }
+  const storage = createMemoryStorage()
+  const ctx = {
+    effect(factory) {
+      return factory()
+    },
+    storage: storage.service,
+    connection: { requestRejection: () => undefined },
+    webServer: {
+      register(route) {
+        handler = route.handler
+        return () => {}
+      },
+    },
+    sessions: { get: (id) => id === 'session-2' ? session : undefined },
+    llm: {
+      async *stream(input) {
+        calls.push(input)
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: JSON.stringify({ overall: '整体', recent: '最近' }) } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      },
+    },
+  }
+  await apply(ctx)
+  const res = new Response()
+  await handler(request({
+    sessionId: 'session-2',
+    sinceSeq: -1,
+    previous: {},
+    fields: { overall: true, recent: true },
+    instructions: {},
+    route: { provider: 'summary-provider', model: 'summary-model' },
+  }), res)
+  assert.equal(res.status, 200)
+  const result = JSON.parse(res.body)
+  assert.equal(result.seq, 1)
+  assert.equal(result.overall, '整体')
+  assert.equal(result.recent, '最近')
+  assert.equal(calls.length, 2)
+  const overallPayload = JSON.parse(calls[0].messages[0].content[0].text)
+  assert.match(overallPayload.timeline.overall, /新输入/)
+  const recentPayload = JSON.parse(calls[1].messages[0].content[0].text)
+  assert.equal(recentPayload.timeline.recent, '用户：新输入\nAI：新输出')
+})
 
 test('persists shared settings and summaries with serialized CAS writes', async () => {
   const routes = new Map()
@@ -208,6 +264,7 @@ test('persists shared settings and summaries with serialized CAS writes', async 
     storage: storage.service,
     sessions: { get: () => undefined },
     llm: { async *stream() {} },
+    connection: { requestRejection: () => undefined },
     webServer: {
       register(route) {
         routes.set(route.path, route.handler)

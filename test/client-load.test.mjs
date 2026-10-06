@@ -25,6 +25,42 @@ test('loads the client bundle through the official module loader', async () => {
   delete globalThis.window
 })
 
+test('derives conversation presence from the host snapshot blank bit or legacy nodes', async () => {
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const start = source.indexOf('    function summaryHasConversation(')
+  const end = source.indexOf('    function ConversationSummary(', start)
+  assert.ok(start >= 0 && end > start)
+  const factory = new Function(source.slice(start, end).trim() + String.fromCharCode(10) + 'return summaryHasConversation')
+  const hasConversation = factory()
+
+  assert.equal(hasConversation({ blank: false }), true)
+  assert.equal(hasConversation({ blank: true }), false)
+  assert.equal(hasConversation({}), false)
+  assert.equal(hasConversation({ nodes: [{ kind: 'user' }] }), true)
+  assert.equal(hasConversation({ nodes: [{ kind: 'assistant' }] }), true)
+  assert.equal(hasConversation({ nodes: [{ kind: 'tool-call' }] }), false)
+})
+
+test('resolves the conversation center past display:contents slot hosts', async () => {
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const start = source.indexOf('    const laidOutAncestor = (node) => {')
+  const end = source.indexOf('    const conversationCenterNode = () => {', start)
+  assert.ok(start >= 0 && end > start)
+  const factory = new Function('window', 'document', source.slice(start, end).trim() + String.fromCharCode(10) + 'return laidOutAncestor')
+  const center = { parentElement: null }
+  const main = { parentElement: center }
+  const slot = { parentElement: main }
+  const display = new Map([[slot, 'contents'], [main, 'contents'], [center, 'flex']])
+  const laidOutAncestor = factory(
+    { getComputedStyle: (node) => ({ display: display.get(node) || 'block' }) },
+    { body: {}, documentElement: {} },
+  )
+  assert.equal(laidOutAncestor(slot), center)
+  assert.equal(laidOutAncestor(main), center)
+  assert.equal(laidOutAncestor(center), center)
+  assert.equal(laidOutAncestor(null), null)
+})
+
 test('removes every adjacent stale settings pending key', async () => {
   const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
   const start = source.indexOf('    function loadSettingsPendingPatch() {')

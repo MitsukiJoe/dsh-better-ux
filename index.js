@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 const ROUTE = '/api/dsh-better-ux/summary-v2'
 const STATE_ROUTE = '/api/dsh-better-ux/state-v1'
 const STATE_DESCRIPTOR = Object.freeze({
@@ -18,7 +20,7 @@ const CUSTOM_PROMPT_LIMIT = 2000
 const MODEL_TIMEOUT = 180000
 
 export const name = 'dsh-better-ux'
-export const inject = ['llm', 'sessions', 'webServer', 'storage', 'storage.backend.json']
+export const inject = ['llm', 'sessions', 'webServer', 'connection', 'storage', 'storage.backend.json']
 
 export function clampText(value, limit) {
   const chars = Array.from(String(value || '').trim())
@@ -270,11 +272,20 @@ function sendJson(res, status, value) {
 }
 
 const SHARED_SETTING_TYPES = Object.freeze({
+  'mobileModel.enabled': 'boolean',
+  'mobileModel.open': 'boolean',
+  'contextMeter.enabled': 'boolean',
+  'contextMeter.open': 'boolean',
+  'contextMeter.threshold': 'threshold',
+  'deepseekBar.enabled': 'boolean',
+  'deepseekBar.open': 'boolean',
+  'deepseekBar.balanceThreshold': 'money',
+  'deepseekBar.funLabels': 'boolean',
+  'deepseekBar.brightColors': 'boolean',
   'sessionRow.enabled': 'boolean',
   'sessionRow.open': 'boolean',
   'sessionRow.rename': 'boolean',
   'sessionRow.fork': 'boolean',
-  'sessionRow.archive': 'boolean',
   'sessionRow.tooltip': 'boolean',
   'modelPicker.enabled': 'boolean',
   'modelPicker.open': 'boolean',
@@ -324,14 +335,22 @@ function stateError(message, status = 400, extra = {}) {
   return Object.assign(new Error(message), { status, ...extra })
 }
 
-function checkSameOrigin(req) {
-  const origin = req.headers?.origin
-  if (!origin) return
-  try {
-    if (new URL(origin).host !== req.headers.host) throw new Error('origin mismatch')
-  } catch {
-    throw stateError('Forbidden', 403)
-  }
+// 本插件的 HTTP 路由只许经此注册：宿主 connection 的 Host/Origin 校验与登录 cookie 校验先于任何业务代码。
+// 缺 requestRejection 时注册即失败（fail closed），不会退化成不设防。
+function registerGuarded(ctx, path, handler, label) {
+  if (typeof ctx.connection?.requestRejection !== 'function') throw new Error('dsh-better-ux: host connection.requestRejection 不可用')
+  return ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path,
+    handler: (req, res) => {
+      const rejection = ctx.connection.requestRejection(req)
+      if (rejection !== undefined) {
+        sendJson(res, rejection, { error: rejection === 401 ? 'Unauthorized' : 'Forbidden' })
+        return
+      }
+      return handler(req, res)
+    },
+  }), label)
 }
 
 function normalizeBaseRevision(value) {
@@ -353,7 +372,7 @@ function flattenSettingsPatch(value) {
       entries.push([key, item])
       continue
     }
-    if (['sessionRow', 'modelPicker', 'mobileLayout', 'fontScale', 'conversationSummary', 'workspaceView'].includes(key) && item && typeof item === 'object' && !Array.isArray(item)) {
+    if (['mobileModel', 'contextMeter', 'deepseekBar', 'sessionRow', 'modelPicker', 'mobileLayout', 'fontScale', 'conversationSummary', 'workspaceView'].includes(key) && item && typeof item === 'object' && !Array.isArray(item)) {
       for (const [childKey, childValue] of Object.entries(item)) entries.push([key + '.' + childKey, childValue])
       continue
     }
@@ -366,6 +385,10 @@ function flattenSettingsPatch(value) {
     if (!type) throw stateError('设置字段不受支持')
     if (type === 'boolean') {
       if (typeof item !== 'boolean') throw stateError(key + ' 必须是布尔值')
+    } else if (type === 'threshold') {
+      if (!Number.isSafeInteger(item) || item < 1 || item > 100) throw stateError(key + ' 必须是 1 到 100 的整数')
+    } else if (type === 'money') {
+      if (!Number.isFinite(item) || item < 0 || !Number.isSafeInteger(Math.round(item * 100)) || Number(item.toFixed(2)) !== item) throw stateError(key + ' 必须是非负金额，最多两位小数')
     } else if (type === 'scale') {
       if (!Number.isSafeInteger(item) || item < 10 || item > 200) throw stateError(key + ' 必须是 10 到 200 的整数')
     } else if (type === 'mode') {
@@ -476,175 +499,270 @@ function createStateStore(unit, snapshot) {
   }
 }
 
+
+// DSH 0.2 起 settings 服务只剩 describe()（经 llm 目录定位 deepseek-official 的配置命名空间）；0.1 仍是 get(ns)。
+export function deepseekProfile(ctx) {
+  const settings = ctx.get?.('settings')
+  if (typeof settings?.describe !== 'function') return settings?.get?.('llm-deepseek')
+  const provider = ctx.llm?.listConfigurableProviders?.().find((item) => item.provider === 'deepseek-official')
+  if (!provider) return undefined
+  let profile = settings.describe({ redactSecrets: true }).find((row) => row.ns === provider.settingsNs)?.value
+  for (const key of provider.settingsPath) profile = profile?.[key]
+  return profile && typeof profile === 'object' ? profile : undefined
+}
+
+function installBalanceEndpoint(ctx) {
+  const cache = new Map()
+  const lifetime = new AbortController()
+  const service = (key) => ctx.get?.(key)
+  ctx.effect(() => () => {
+    lifetime.abort()
+    cache.clear()
+  }, 'dsh-better-ux: balance requests')
+  registerGuarded(ctx, '/api/dsh-better-ux/deepseek-balance-v1', async (req, res) => {
+    let entry
+    let release
+    try {
+      if (req.method !== 'GET') {
+        res.setHeader('allow', 'GET')
+        sendJson(res, 405, { error: 'Method Not Allowed' })
+        return
+      }
+      const identity = { provider: 'deepseek-official' }
+      const result = (status, extra = {}) => ({ status, ...identity, balance_infos: [], ...extra })
+      const config = deepseekProfile(ctx)
+      if (!config) {
+        sendJson(res, 200, result('unavailable'))
+        return
+      }
+      const environment = service('launchEnvironment') ?? ctx.launchEnvironment
+      const ambient = (key) => environment ? environment.get(key)?.value : process.env[key]
+      const endpoint = new URL(config.baseURL ?? ambient('DEEPSEEK_BASE_URL') ?? 'https://api.deepseek.com')
+      if (endpoint.origin !== 'https://api.deepseek.com' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || !['', '/', '/v1', '/v1/'].includes(endpoint.pathname)) {
+        sendJson(res, 200, result('unsupported_provider'))
+        return
+      }
+      const ref = config.apiKeyEnv ?? 'DEEPSEEK_API_KEY'
+      const credentials = service('credentials')
+      const key = credentials ? (await credentials.resolve(ref))?.value : ambient(ref)
+      lifetime.signal.throwIfAborted()
+      if (res.destroyed) return
+      if (typeof key !== 'string' || !key.trim() || /[\r\n]/.test(key)) {
+        sendJson(res, 200, result('missing_credentials'))
+        return
+      }
+      const cacheKey = createHash('sha256').update(key).digest('hex')
+      entry = cache.get(cacheKey)
+      if (!entry || entry.expires <= Date.now() || entry.controller.signal.aborted) {
+        if (entry) cache.delete(cacheKey)
+        for (const [oldKey, old] of cache) if (old.expires <= Date.now()) cache.delete(oldKey)
+        if (cache.size >= 32) {
+          sendJson(res, 200, result('unavailable'))
+          return
+        }
+        const controller = new AbortController()
+        entry = { controller, users: 0, expires: Infinity, settled: false }
+        entry.promise = (async () => {
+          try {
+            const response = await fetch('https://api.deepseek.com/user/balance', {
+              headers: { authorization: 'Bearer ' + key, accept: 'application/json' },
+              redirect: 'error',
+              signal: AbortSignal.any([controller.signal, lifetime.signal, AbortSignal.timeout(15000)]),
+            })
+            if (!response.ok) throw new Error('balance unavailable')
+            const value = await response.json()
+            if (typeof value?.is_available !== 'boolean' || !Array.isArray(value.balance_infos) || value.balance_infos.length > 10) throw new Error('invalid balance')
+            const balance_infos = value.balance_infos.map((balance) => {
+              if (!['CNY', 'USD'].includes(balance?.currency)) throw new Error('invalid currency')
+              const normalized = { currency: balance.currency }
+              for (const field of ['total_balance', 'granted_balance', 'topped_up_balance']) {
+                if (typeof balance[field] !== 'string' || !/^-?\d{1,20}(\.\d{1,20})?$/.test(balance[field])) throw new Error('invalid balance')
+                normalized[field] = balance[field]
+              }
+              return normalized
+            })
+            return { status: 'ok', is_available: value.is_available, balance_infos }
+          } catch {
+            return { status: 'error', balance_infos: [] }
+          } finally {
+            entry.settled = true
+            entry.expires = Date.now() + 60000
+          }
+        })()
+        cache.set(cacheKey, entry)
+      }
+      entry.users++
+      let released = false
+      release = () => {
+        if (released) return
+        released = true
+        entry.users--
+        if (!entry.users && !entry.settled) entry.controller.abort()
+      }
+      res.on('close', release)
+      const value = await entry.promise
+      if (!res.destroyed) sendJson(res, 200, { ...identity, ...value })
+    } catch (error) {
+      if (!res.headersSent && !res.destroyed) sendJson(res, error?.status || 200, { status: 'error', balance_infos: [] })
+    } finally {
+      release?.()
+      if (release) res.removeListener('close', release)
+    }
+  }, 'dsh-better-ux: balance endpoint')
+}
+
 export async function apply(ctx) {
+  installBalanceEndpoint(ctx)
   const unit = await ctx.storage.backend.get('json').kv.open(STATE_DESCRIPTOR)
   const store = createStateStore(unit, await unit.loadAll())
   ctx.effect(() => () => store.close(), 'dsh-better-ux: state storage')
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
-    path: STATE_ROUTE,
-    handler: async (req, res) => {
-      try {
-        checkSameOrigin(req)
-        const url = new URL(req.url || STATE_ROUTE, 'http://localhost')
-        if (req.method === 'GET') {
-          if (url.searchParams.has('summaries')) {
-            const query = Array.from(url.searchParams.entries())
-            if (query.length !== 1 || query[0][0] !== 'summaries' || query[0][1] !== '1') throw stateError('summaries 查询参数无效')
-            sendJson(res, 200, { version: 1, summaries: store.listSummaryManifest() })
-            return
-          }
-          const requestedSessionId = url.searchParams.get('sessionId')
-          const sessionId = requestedSessionId ? normalizeSessionId(requestedSessionId) : null
-          sendJson(res, 200, {
-            version: 1,
-            settings: store.getSettings(),
-            summary: sessionId ? store.getSummary(sessionId) : null,
-            summaryRevision: sessionId ? store.getSummaryRevision(sessionId) : 0,
-          })
+  registerGuarded(ctx, STATE_ROUTE, async (req, res) => {
+    try {
+      const url = new URL(req.url || STATE_ROUTE, 'http://localhost')
+      if (req.method === 'GET') {
+        if (url.searchParams.has('summaries')) {
+          const query = Array.from(url.searchParams.entries())
+          if (query.length !== 1 || query[0][0] !== 'summaries' || query[0][1] !== '1') throw stateError('summaries 查询参数无效')
+          sendJson(res, 200, { version: 1, summaries: store.listSummaryManifest() })
           return
         }
-        if (req.method === 'PATCH') {
-          if (!String(req.headers?.['content-type'] || '').toLowerCase().startsWith('application/json')) throw stateError('Content-Type must be application/json', 415)
-          const input = await readJson(req, STATE_BODY_LIMIT)
-          const baseRevision = normalizeBaseRevision(input.baseRevision)
-          if (input.kind === 'settings') {
-            const settings = await store.patchSettings(baseRevision, flattenSettingsPatch(input.patch))
-            sendJson(res, 200, { settings })
-            return
-          }
-          if (input.kind === 'summary') {
-            const sessionId = normalizeSessionId(input.sessionId)
-            const summary = await store.patchSummary(sessionId, baseRevision, normalizeStoredSummary(input.value))
-            sendJson(res, 200, { summary })
-            return
-          }
-          throw stateError('kind 无效')
-        }
-        if (req.method === 'DELETE') {
-          const sessionId = normalizeSessionId(url.searchParams.get('sessionId'))
-          const rawRevision = url.searchParams.get('baseRevision')
-          if (rawRevision === null) throw stateError('baseRevision 缺失')
-          if (!/^(0|[1-9]\d*)$/.test(rawRevision)) throw stateError('baseRevision 无效')
-          const baseRevision = normalizeBaseRevision(Number(rawRevision))
-          await store.deleteSummary(sessionId, baseRevision)
-          res.writeHead(204, { 'cache-control': 'no-store' })
-          res.end()
-          return
-        }
-        res.setHeader('allow', 'GET, PATCH, DELETE')
-        sendJson(res, 405, { error: 'Method Not Allowed' })
-      } catch (error) {
-        if (res.headersSent || res.destroyed) return
-        if (error?.status === 409) {
-          sendJson(res, 409, { error: 'revision_conflict', current: error.current || null })
-          return
-        }
-        sendJson(res, error?.status || 500, { error: error?.message || '状态同步失败' })
-      }
-    },
-  }), 'dsh-better-ux: state endpoint')
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
-    path: ROUTE,
-    handler: async (req, res) => {
-      if (req.method !== 'POST') {
-        sendJson(res, 405, { error: 'Method Not Allowed' })
+        const requestedSessionId = url.searchParams.get('sessionId')
+        const sessionId = requestedSessionId ? normalizeSessionId(requestedSessionId) : null
+        sendJson(res, 200, {
+          version: 1,
+          settings: store.getSettings(),
+          summary: sessionId ? store.getSummary(sessionId) : null,
+          summaryRevision: sessionId ? store.getSummaryRevision(sessionId) : 0,
+        })
         return
       }
-      if (!String(req.headers?.['content-type'] || '').toLowerCase().startsWith('application/json')) {
-        sendJson(res, 415, { error: 'Content-Type must be application/json' })
+      if (req.method === 'PATCH') {
+        if (!String(req.headers?.['content-type'] || '').toLowerCase().startsWith('application/json')) throw stateError('Content-Type must be application/json', 415)
+        const input = await readJson(req, STATE_BODY_LIMIT)
+        const baseRevision = normalizeBaseRevision(input.baseRevision)
+        if (input.kind === 'settings') {
+          const settings = await store.patchSettings(baseRevision, flattenSettingsPatch(input.patch))
+          sendJson(res, 200, { settings })
+          return
+        }
+        if (input.kind === 'summary') {
+          const sessionId = normalizeSessionId(input.sessionId)
+          const summary = await store.patchSummary(sessionId, baseRevision, normalizeStoredSummary(input.value))
+          sendJson(res, 200, { summary })
+          return
+        }
+        throw stateError('kind 无效')
+      }
+      if (req.method === 'DELETE') {
+        const sessionId = normalizeSessionId(url.searchParams.get('sessionId'))
+        const rawRevision = url.searchParams.get('baseRevision')
+        if (rawRevision === null) throw stateError('baseRevision 缺失')
+        if (!/^(0|[1-9]\d*)$/.test(rawRevision)) throw stateError('baseRevision 无效')
+        const baseRevision = normalizeBaseRevision(Number(rawRevision))
+        await store.deleteSummary(sessionId, baseRevision)
+        res.writeHead(204, { 'cache-control': 'no-store' })
+        res.end()
         return
       }
-      const origin = req.headers?.origin
-      if (origin) {
-        try {
-          if (new URL(origin).host !== req.headers.host) {
-            sendJson(res, 403, { error: 'Forbidden' })
-            return
-          }
-        } catch {
-          sendJson(res, 403, { error: 'Forbidden' })
-          return
-        }
+      res.setHeader('allow', 'GET, PATCH, DELETE')
+      sendJson(res, 405, { error: 'Method Not Allowed' })
+    } catch (error) {
+      if (res.headersSent || res.destroyed) return
+      if (error?.status === 409) {
+        sendJson(res, 409, { error: 'revision_conflict', current: error.current || null })
+        return
       }
-      const controller = new AbortController()
-      res.on('close', () => {
-        if (!res.writableEnded) controller.abort()
-      })
-      try {
-        const input = await readJson(req)
-        const sessionId = typeof input.sessionId === 'string' ? input.sessionId : ''
-        const session = ctx.sessions.get(sessionId)
-        if (!session) {
-          sendJson(res, 404, { error: '当前会话不可用' })
-          return
-        }
-        const fields = {
-          overall: input.fields?.overall !== false,
-          recent: input.fields?.recent !== false,
-        }
-        if (!fields.overall && !fields.recent) {
-          sendJson(res, 400, { error: '至少开启一种摘要' })
-          return
-        }
-        const route = {
-          provider: clampText(input.route?.provider, 200),
-          model: clampText(input.route?.model, 500),
-          ...(typeof input.route?.reasoningEffort === 'string' && input.route.reasoningEffort ? { reasoningEffort: clampText(input.route.reasoningEffort, 50) } : {}),
-        }
-        if (!route.provider || !route.model) {
-          sendJson(res, 400, { error: '请先选择摘要模型' })
-          return
-        }
-        const previous = {
-          overall: fields.overall ? summaryText(input.previous?.overall) : '',
-          recent: fields.recent ? summaryText(input.previous?.recent) : '',
-        }
-        const instructions = {
-          overall: clampText(input.instructions?.overall, CUSTOM_PROMPT_LIMIT),
-          recent: clampText(input.instructions?.recent, CUSTOM_PROMPT_LIMIT),
-        }
-        const sinceSeq = Number.isSafeInteger(input.sinceSeq) ? input.sinceSeq : -1
-        const lastSeq = session.events.at(-1)?.seq ?? -1
-        const messages = sinceSeq < 0 && typeof session.deriveMessages === 'function' ? session.deriveMessages() : null
-        const overallTimeline = fields.overall
-          ? sinceSeq < 0 && messages
-            ? [timelineFromMessages(messages), timelineFromEvents(latestStateEvents(session.events), -1, false)].filter(Boolean).join('\n')
-            : timelineFromEvents(session.events, sinceSeq)
-          : ''
-        const recentTimeline = fields.recent
-          ? latestCompletedTurnFromEvents(session.events) || (messages ? latestCompletedTurnFromMessages(messages) : '')
-          : ''
-        const overallChunks = splitTimeline(overallTimeline)
-        if (!overallChunks.length && fields.overall && input.refresh === true && previous.overall) overallChunks.push('')
-        if (!overallChunks.length && !recentTimeline) {
-          sendJson(res, 200, { ...previous, seq: lastSeq, model: route })
-          return
-        }
-        let summary = previous
-        let usage
-        const addUsage = (value) => {
-          if (!value) return
-          usage ||= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 }
-          for (const key of Object.keys(usage)) usage[key] += Number(value[key]) || 0
-        }
-        for (const chunk of overallChunks) {
-          const result = await summarizeChunk(ctx, route, session.id || sessionId, { overall: summary.overall, recent: '' }, { overall: chunk, recent: '' }, { overall: true, recent: false }, instructions, controller.signal)
-          summary = { ...summary, overall: result.summary.overall }
-          addUsage(result.usage)
-        }
-        if (recentTimeline) {
-          const result = await summarizeChunk(ctx, route, session.id || sessionId, { overall: '', recent: '' }, { overall: '', recent: recentTimeline }, { overall: false, recent: true }, instructions, controller.signal)
-          summary = { ...summary, recent: result.summary.recent }
-          addUsage(result.usage)
-        }
-        sendJson(res, 200, { ...summary, seq: lastSeq, model: route, ...(usage ? { usage } : {}) })
-      } catch (error) {
-        if (!res.headersSent && !res.destroyed) sendJson(res, error?.status || 500, { error: error?.message || '摘要生成失败' })
-      } finally {
-        if (!controller.signal.aborted) controller.abort()
+      sendJson(res, error?.status || 500, { error: error?.message || '状态同步失败' })
+    }
+  }, 'dsh-better-ux: state endpoint')
+  registerGuarded(ctx, ROUTE, async (req, res) => {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'Method Not Allowed' })
+      return
+    }
+    if (!String(req.headers?.['content-type'] || '').toLowerCase().startsWith('application/json')) {
+      sendJson(res, 415, { error: 'Content-Type must be application/json' })
+      return
+    }
+    const controller = new AbortController()
+    res.on('close', () => {
+      if (!res.writableEnded) controller.abort()
+    })
+    try {
+      const input = await readJson(req)
+      const sessionId = typeof input.sessionId === 'string' ? input.sessionId : ''
+      const session = ctx.sessions.get(sessionId)
+      if (!session) {
+        sendJson(res, 404, { error: '当前会话不可用' })
+        return
       }
-    },
-  }), 'dsh-better-ux: summary endpoint')
+      const fields = {
+        overall: input.fields?.overall !== false,
+        recent: input.fields?.recent !== false,
+      }
+      if (!fields.overall && !fields.recent) {
+        sendJson(res, 400, { error: '至少开启一种摘要' })
+        return
+      }
+      const route = {
+        provider: clampText(input.route?.provider, 200),
+        model: clampText(input.route?.model, 500),
+        ...(typeof input.route?.reasoningEffort === 'string' && input.route.reasoningEffort ? { reasoningEffort: clampText(input.route.reasoningEffort, 50) } : {}),
+      }
+      if (!route.provider || !route.model) {
+        sendJson(res, 400, { error: '请先选择摘要模型' })
+        return
+      }
+      const previous = {
+        overall: fields.overall ? summaryText(input.previous?.overall) : '',
+        recent: fields.recent ? summaryText(input.previous?.recent) : '',
+      }
+      const instructions = {
+        overall: clampText(input.instructions?.overall, CUSTOM_PROMPT_LIMIT),
+        recent: clampText(input.instructions?.recent, CUSTOM_PROMPT_LIMIT),
+      }
+      const sinceSeq = Number.isSafeInteger(input.sinceSeq) ? input.sinceSeq : -1
+      const events = typeof session.snapshotEvents === 'function'
+        ? session.snapshotEvents()
+        : Array.isArray(session.events) ? session.events : []
+      const lastSeq = events.at(-1)?.seq ?? -1
+      const messages = sinceSeq < 0 && typeof session.deriveMessages === 'function' ? session.deriveMessages() : null
+      const overallTimeline = fields.overall
+        ? sinceSeq < 0 && messages
+          ? [timelineFromMessages(messages), timelineFromEvents(latestStateEvents(events), -1, false)].filter(Boolean).join('\n')
+          : timelineFromEvents(events, sinceSeq)
+        : ''
+      const recentTimeline = fields.recent
+        ? latestCompletedTurnFromEvents(events) || (messages ? latestCompletedTurnFromMessages(messages) : '')
+        : ''
+      const overallChunks = splitTimeline(overallTimeline)
+      if (!overallChunks.length && fields.overall && input.refresh === true && previous.overall) overallChunks.push('')
+      if (!overallChunks.length && !recentTimeline) {
+        sendJson(res, 200, { ...previous, seq: lastSeq, model: route })
+        return
+      }
+      let summary = previous
+      let usage
+      const addUsage = (value) => {
+        if (!value) return
+        usage ||= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 }
+        for (const key of Object.keys(usage)) usage[key] += Number(value[key]) || 0
+      }
+      for (const chunk of overallChunks) {
+        const result = await summarizeChunk(ctx, route, session.id || sessionId, { overall: summary.overall, recent: '' }, { overall: chunk, recent: '' }, { overall: true, recent: false }, instructions, controller.signal)
+        summary = { ...summary, overall: result.summary.overall }
+        addUsage(result.usage)
+      }
+      if (recentTimeline) {
+        const result = await summarizeChunk(ctx, route, session.id || sessionId, { overall: '', recent: '' }, { overall: '', recent: recentTimeline }, { overall: false, recent: true }, instructions, controller.signal)
+        summary = { ...summary, recent: result.summary.recent }
+        addUsage(result.usage)
+      }
+      sendJson(res, 200, { ...summary, seq: lastSeq, model: route, ...(usage ? { usage } : {}) })
+    } catch (error) {
+      if (!res.headersSent && !res.destroyed) sendJson(res, error?.status || 500, { error: error?.message || '摘要生成失败' })
+    } finally {
+      if (!controller.signal.aborted) controller.abort()
+    }
+  }, 'dsh-better-ux: summary endpoint')
 }

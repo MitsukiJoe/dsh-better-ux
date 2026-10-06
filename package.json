@@ -14,7 +14,7 @@
   "files": [
     "LICENSE",
     "README.md",
-    "README.zh.md",
+    "README.en.md",
     "cordis.patch.yml",
     "index.js",
     "install.sh",
