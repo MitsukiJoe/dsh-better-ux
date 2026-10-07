@@ -20,7 +20,7 @@
 </p>
 
 <p>
-  <img src="docs/social-preview/zh.png" alt="dsh-better-ux：DeepSeek Harness 网页端六类可独立开关的界面优化" />
+  <img src="docs/social-preview/zh.png" width="640" alt="dsh-better-ux：DeepSeek Harness 网页端八类可独立开关的界面优化" />
 </p>
 
 </div>
@@ -42,15 +42,15 @@
 
 点一次打开大浮层：搜索、供应商筛选、模型卡片，思考档位铺在底部。
 不再走「模型 → 列表 / 推理等级 → 列表」两级菜单。
-供应商筛选固定为单行横向轨道，普通滚轮和 `Shift + 滚轮` 都可横向浏览。
+DeepSeek 账号和官方供应商置顶，其余供应商保持模型目录顺序。供应商筛选固定为单行横向轨道，普通滚轮和 `Shift + 滚轮` 都可横向浏览。
 若装了 [dsh-vision-router](https://github.com/ysr666/dsh-vision-router) && [dsh-vision-router-inline](https://github.com/MitsukiJoe/dsh-vision-router-inline)
 识图孪生供应商不会呈原插件那样重复显示为独立分组，而是合并到对应的原模型卡片：点卡片走原模型，点右侧图片按钮走识图路由。
 
 
 | 上：插件开启 · 下：关闭插件（原版）                                    |
 | ------------------------------------------------------ |
-| ![浮层打开在当前会话之上](docs/model-picker-fullpage.png)         |
-| ![原版两级模型菜单，同一会话背景](docs/model-picker-fullpage-off.png) |
+| <img src="docs/model-picker-fullpage.png" width="1280" alt="真实模型选择器的完整桌面窗口" />         |
+| <img src="docs/model-picker-fullpage-off.png" width="1280" alt="真实桌面窗口中的原版两级模型菜单" /> |
 
 
 
@@ -65,8 +65,8 @@
 
 | 上：插件开启 · 下：关闭插件                                    |
 | -------------------------------------------------- |
-| ![悬停图标显示功能名](docs/session-row-tooltip.png)         |
-| ![原版会话行，无内联快捷按钮](docs/session-row-tooltip-off.png) |
+| <img src="docs/session-row-tooltip.png" width="280" alt="悬停图标显示功能名" />         |
+| <img src="docs/session-row-tooltip-off.png" width="280" alt="原版会话行，无内联快捷按钮" /> |
 
 
 
@@ -91,29 +91,29 @@
 - **兼容与恢复**：宿主会话头部和右侧侧边栏按钮始终定位在动态顶部栏下方；关闭总开关后恢复宿主原版侧栏和输入区
 
 
-| 插件开启                                      | 关闭插件（原版）                                          |
-| ----------------------------------------- | ------------------------------------------------- |
-| ![移动端优化](docs/mobile-top-session-bar.png) | ![原版移动端网页布局](docs/mobile-top-session-bar-off.png) |
+| 插件开启 | 关闭插件（原版） |
+| --- | --- |
+| <img src="docs/mobile-top-session-bar.png" width="360" alt="完整展开的移动端界面" /> | <img src="docs/mobile-top-session-bar-off.png" width="360" alt="完整展开的原版移动端界面" /> |
 
 
 分组方式跟随宿主视图选项：**按工作区**保留会话上方的工作区轨道，**单列表**隐藏该行并缩短顶部栏。
 
 
-| 插件开启                                | 关闭插件（原版）                                        |
-| ----------------------------------- | ----------------------------------------------- |
-| ![单列表分组](docs/mobile-flat-list.png) | ![原版移动端布局，单列表视图](docs/mobile-flat-list-off.png) |
+| 插件开启 | 关闭插件（原版） |
+| --- | --- |
+| <img src="docs/mobile-flat-list.png" width="360" alt="完整展开的移动端单列表界面" /> | <img src="docs/mobile-flat-list-off.png" width="360" alt="完整展开的原版移动端单列表界面" /> |
 
 #### 模型名长度限制4字
 
 位于 **设置 → 交互体验 → 移动端优化**，默认开启。手机 / 平板布局（视口宽度不超过 1023px）下，模型名最多显示前 4 个字符，超出后加 `…`；思维程度完整显示在同一行。兼容原生模型选择器和本插件选择器，关闭此项或移动端优化总开关后，立即恢复完整名称。
 
-![移动端模型名称及账号状态栏](docs/composer-mobile.png)
+<img src="docs/composer-mobile.png" width="360" alt="真实 Deep… 模型名及 High 思考档位特写" />
 
 ### 上下文提醒
 
-默认开启。hover 上下文圆环时，在原有百分比下追加与原生详情一致的已用 / 总量（例如 `~291K / 1M`）。**红色提醒阈值**可设为 1–100 的整数，默认 `90%`；显示百分比达到阈值时，圆环变为亮红色。点击后的原生详情内容保持不变，关闭后恢复原来的圆环和 hover。
+默认开启。hover 上下文圆环时，在原有百分比下追加与原生详情一致的已用 / 总量（例如 `~291K / 1M`）。**红色提醒阈值**可设为 1–100 的整数，默认 `90%`；显示百分比达到阈值时，圆环变为红色，跟随「提示颜色」配色，默认暗色。点击后的原生详情内容保持不变，关闭后恢复原来的圆环和 hover。
 
-![上下文百分比及具体数额](docs/composer-context.png)
+<img src="docs/composer-context.png" width="736" alt="99% 上下文提醒演示及原生轮数、步数、速度、token 和缓存统计" />
 
 ### DeepSeek 账号状态
 
@@ -123,26 +123,26 @@
 
 **额度余额告警**默认 `5.00`，余额严格低于该金额时显示红色，单位跟随余额币种。**峰谷整活显示**默认开启，将「高峰 / 低谷」显示为「梁文峰 / 梁文谷」，关闭立即恢复。
 
-![DeepSeek 余额和峰谷价格栏（示例余额）](docs/deepseek-account-bar.png)
+<img src="docs/deepseek-account-bar.png" width="724" alt="余额 ¥3.69 低于默认阈值 5.00 的告警演示及峰谷价格栏" />
 
 余额由 Host 使用官方 DeepSeek 供应商凭据独立调用 [官方余额接口](https://api-docs.deepseek.com/api/get-user-balance/)，密钥不会返回浏览器。余额全局共享，切换会话不会清空或触发查询；可见页面约每分钟刷新，隐藏页面暂停；Host 对同账号缓存 60 秒并合并并发请求。缺少官方凭据或查询失败只改变左侧提示，右侧峰谷、价格和倒计时继续显示。升级后需重启 DSH Web 加载新的 Host 接口。
 
-峰谷指**官方计费时段**，不是实时服务拥堵程度。[价格规则](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)核对于 2026-09-19：北京时间周一至周五 09:00–12:00、14:00–18:00 为高峰，中国公共假期除外；其余为低谷。单价为每百万 token 的**未命中缓存输入 / 输出**，币种跟随返回余额（失败时保留已知币种）。选择官方 Flash / Pro 时更新价格；切到第三方时沿用上次官方模型，首次默认 Flash。目前内置 2026 年官方假期，跨年需更新日历，未知年度不展示未经核实的峰谷价格。本文截图使用示例余额。
+峰谷指**官方计费时段**，不是实时服务拥堵程度。[价格规则](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)核对于 2026-10-06：北京时间周一至周五 09:00–12:00、14:00–18:00 为高峰，中国公共假期除外；其余为低谷。单价为每百万 token 的**未命中缓存输入 / 输出**，币种跟随返回余额（失败时保留已知币种）。选择官方 Flash / Pro 时更新价格；切到第三方时沿用上次官方模型，首次默认 Flash。价格和 2026 年官方节假日日历均为插件内置规则，不会自动从官网获取更新；官方调整规则或跨年时需更新插件，实际计费以官网为准。未知年度不展示未经核实的峰谷价格。
 
 ### 全局字体缩放
 
 手机 / 平板与桌面 / 其他分别保存缩放比例。输入框可直接填写 `10`–`200` 的整数，左右按钮以 `5%` 步进；移动端默认 `80%`，桌面默认 `100%`。  
 缩放会按元素原始尺寸同步调整字体、明确的行高和内边距，关闭总开关或卸载插件后恢复原始样式。
 
-![全局字体缩放设置](docs/font-scale.png)
-
-![桌面 80% 比例下的会话内容](docs/font-scale-effect.png)
+<img src="docs/font-scale.png" width="584" alt="全局字体缩放设置" />
 
 ### 快速导航已发消息
 
 正文列右下角纵向排列两个按钮，点一下跳到上一句或下一句我发送的消息，中间大段工具输出和回复不用再手动滚。显示状态跟随宿主的**回到底部**按钮：宿主隐藏时按钮一起隐藏，且不可点击、不可聚焦。桌面端静置为 50% 透明度，hover 或键盘聚焦后不透明；触屏端始终不透明。该方向没有消息时对应按钮置灰。
 
 开启**到顶部时自动加载更早消息**后，滚到顶部再点上一条会触发宿主自己的分页控件一次，加载完成再跳到那条消息。这个等待有上界：如果这次加载始终没有出现更早的我的消息，10 秒后放弃，不会在更晚的时候突然移动视口。关掉该选项则只在已加载的消息之间跳转。
+
+<img src="docs/user-message-navigation.png" width="47" alt="上一条、下一条已发消息与宿主原生回到底部按钮特写" />
 
 ### 对话情况总结
 
@@ -156,35 +156,62 @@
 
 这一类需要插件的 host 半边已加载。如果正在运行的 Host 版本旧于浏览器半边，面板会直接提示，需要重启 DSH Web。
 
+<img src="docs/conversation-summary.png" width="1280" alt="左上角摘要小球展开后的完整深色桌面窗口" />
+
 ### 设置
 
 入口为 **设置 → 交互体验**。可配置：
 
-![设置 → 交互体验](docs/settings-page.png)
+<img src="docs/settings-page.png" width="1280" alt="深色设置窗口，分类正常展开，保留完整外框及左侧交互体验入口" />
 
 - **会话行快捷操作**：总开关、重命名、分叉、悬停功能名
 - **模型选择器**：总开关、搜索框、供应商筛选、底部思考档位、点选后关闭
 - **移动端优化**：总开关、长按调序胶囊、切换会话不自动聚焦、横向溢出提示、右侧侧边栏兼容、禁止双指缩放页面、模型名长度限制4字
 - **上下文提醒**：总开关、红色提醒阈值（默认 90%）
-- **DeepSeek 账号状态**：总开关、额度余额告警、峰谷整活显示
+- **DeepSeek 账号状态**：总开关、提示颜色（暗色 / 亮色）、额度余额告警、峰谷整活显示
 - **全局字体缩放**：总开关、移动端比例、桌面 / 其他比例
 - **快速导航已发消息**：总开关、到顶部时自动加载更早消息
 - **对话情况总结**：总开关、整个对话、最近任务、摘要模型与推理强度、展示方式、折叠正文快捷键、两个要求输入框、小球悬停 / 点击展开
 
 关闭分类总开关会恢复对应的 DSH 原版界面。
 
+插件设置、会话头部及摘要折叠状态、工作区分组与排序（`groupBy` / `orderBy`）通过同一个 DSH Host 在浏览器和设备之间共享；不同 Host 安装不互通。`localStorage` 仍作为即时缓存。
+
+## 运行要求
+
+需要 Node.js 22 或更高版本，以及提供语言服务、插槽（slots）、模型目录、存储和宿主鉴权能力的 DSH Web。文档与界面核对于 2026-10-07，使用 DSH `0.2.0-rc.2`；其他版本需确认上述能力可用。功能截图统一使用深色主题和现有模型目录；含对话内容的截图均来自「临时」工作区中标题以「在一个黑色的袋子里放有三种」开头的真实会话，保留原始正文。摘要直接展示该会话已有缓存，以左上角小球展开的完整桌面窗口展示。桌面以 1280×720 CSS 像素、DPR 2 拍摄；手机以 360×640 DP、DPR 3 拍摄，完整截图输出为 1080×1920 像素。模型选择器展示完整桌面窗口，移动端展示完整展开界面；字体缩放仅展示设置，设置总览保留完整窗口外框、左侧入口及正常展开的分类。99% 上下文与 ¥3.69 余额仅在真实 DOM 中演示；余额告警阈值保持默认 5.00，原生轮数、步数、速度、token 和缓存统计保留。
+
+Host 负责保存设置与摘要、鉴权查询 DeepSeek 余额；浏览器端提供界面增强。
+
 ## 安装
-
-### npm
-
-```bash
-dsh plugin --profile web add dsh-better-ux@latest
-```
 
 ### GitHub
 
 ```bash
 dsh plugin --profile web add github:MitsukiJoe/dsh-better-ux
+```
+
+### 一键安装
+
+需要已有 web profile，以及 Git 和 Python 3；默认克隆到 `$HOME/dsh-better-ux` 并链接到 web profile。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MitsukiJoe/dsh-better-ux/main/install.sh | bash
+```
+
+### 本地开发
+
+在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 中将 `dsh-better-ux` 设为 `file:/绝对路径/dsh-better-ux`，并在 `dsh.profile.bundles` 数组加入 `dsh-better-ux`。以源码位于 `$HOME/dsh-better-ux` 为例：
+
+```bash
+mkdir -p "$HOME/.dsh/profiles/web/node_modules"
+ln -sfn "$HOME/dsh-better-ux" "$HOME/.dsh/profiles/web/node_modules/dsh-better-ux"
+```
+
+### npm
+
+```bash
+dsh plugin --profile web add dsh-better-ux@latest
 ```
 
 ### 让 DSH 安装
@@ -195,7 +222,7 @@ dsh plugin --profile web add github:MitsukiJoe/dsh-better-ux
 安装这个插件 https://github.com/MitsukiJoe/dsh-better-ux
 ```
 
-安装后重启 DSH。
+安装后重启 DSH Web。
 
 ## 更新
 
@@ -209,8 +236,10 @@ dsh plugin --profile web update dsh-better-ux
 更新这个插件 https://github.com/MitsukiJoe/dsh-better-ux
 ```
 
+更新后重启 DSH Web，加载 Host 侧更新。
+
 ## 卸载
 
-从 `~/.dsh/profiles/web/package.json` 去掉 `dsh-better-ux`，删掉 `node_modules/dsh-better-ux`，重启。
+从 `~/.dsh/profiles/web/package.json` 的 `dependencies` 和 `dsh.profile.bundles` 中都移除 `dsh-better-ux`，删除 `~/.dsh/profiles/web/node_modules/dsh-better-ux`，重启 DSH Web。
 
-配置留在 `localStorage` 的 `dsh-better-ux:v1`。
+卸载会保留浏览器 `localStorage` 中的设置（`dsh-better-ux:v1`）和摘要缓存，以及 Host 保存的设置和摘要。
