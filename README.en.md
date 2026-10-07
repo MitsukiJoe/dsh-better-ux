@@ -102,7 +102,7 @@ On by default, in the native slot above the composer. Queued messages appear abo
 
 **Indicator colors** offers Dark / Bright, defaulting to Dark (the original palette). Bright uses red `#fe395d` and green `#00d066` for the context ring, balance alert, and peak/off-peak prices.
 
-**Low balance alert** defaults to `5.00` in the balance currency; amounts strictly below it turn red. **Playful peak/off-peak labels** is on by default and shows “Liang Wenfeng / Liang Wengu” (「梁文峰 / 梁文谷」 in Chinese); turning it off restores the regular labels.
+**Low balance alert** defaults to `5.00` in the balance currency; amounts strictly below it turn red. **Playful peak/off-peak labels** is on by default, displaying tariff status with playful wording; turning it off restores the regular labels.
 
 <img src="docs/deepseek-account-bar.png" width="724" alt="Example ¥3.69 balance below the default 5.00 alert threshold, with the tariff bar" />
 
