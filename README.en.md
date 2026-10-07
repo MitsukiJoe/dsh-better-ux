@@ -40,8 +40,7 @@ All plugin-owned labels follow the current DSH language (Chinese or English) and
 
 ### Model picker
 
-One click opens a full overlay: search, provider chips, model cards, and reasoning levels on the bottom row. No nested “Model → list / Effort → list” menu. DeepSeek accounts and official providers come first; other providers keep their model-directory order. Providers stay on one horizontal rail; a normal mouse wheel or `Shift + wheel` scrolls it sideways, while independent `8px` fades indicate hidden content at either edge. If [dsh-vision-router](https://github.com/ysr666/dsh-vision-router) && [dsh-vision-router-inline](https://github.com/MitsukiJoe/dsh-vision-router-inline) are installed, Auto Vision twin providers are not shown as duplicate groups; they fold into the matching original model cards:
-the card selects the original model, and the picture button on the right selects the vision route.
+One click opens a full overlay: search, provider chips, model cards, and reasoning levels on the bottom row. No nested “Model → list / Effort → list” menu. DeepSeek accounts and official providers come first; other providers keep their model-directory order. Providers stay on one horizontal rail; a normal mouse wheel or `Shift + wheel` scrolls it sideways, while independent `8px` fades indicate hidden content at either edge. Matching Auto Vision twins from [dsh-vision-router](https://github.com/ysr666/dsh-vision-router) in the model directory fold into their original model cards: the card selects the original model, and the picture button on the right selects the vision route. This picker does not require [dsh-vision-router-inline](https://github.com/MitsukiJoe/dsh-vision-router-inline).
 
 | Enabled (top) · Disabled, original menu (bottom) |
 | --- |
@@ -128,9 +127,11 @@ Reaching the top with **Load earlier messages at the top** enabled clicks the ho
 
 Off by default, because it needs a model: choose one, then turn the category on. The session header gains a **Conversation status** panel that keeps two model-written summaries for the open session — **Whole conversation** and **Recent task**.
 
+Summaries update automatically when each run ends in the current session and can also be regenerated manually. Collapsing Whole conversation or Recent task pauses generation for that summary.
+
 - **Model** — any provider and model from the host model directory, plus reasoning effort when that model exposes levels. Conversation content is sent to the model you pick, so choose one you are willing to send the session to.
 - **Instructions** — optional per-field instructions. Left empty, the two fields fall back to “summarize what this session did in 400 characters or fewer” and “summarize what this round did in 100 characters or fewer”; those limits belong to the default instructions only and do not truncate anything. One formatting rule — a line break after every full stop — always applies and cannot be overridden.
-- **Display mode** — **Large card** anchors to the conversation column above the content, **Small card** shows a side panel and degrades to a ball when there is not enough room, **Collapsed** always shows only the ball. The ball can expand on hover, on click, or both.
+- **Display mode** — **Large card** anchors to the conversation column above the content, **Small card** shows a side panel and degrades to a ball when there is not enough room, **Collapsed** shows the ball by default. The ball can expand on hover, on click, or both.
 - **Shortcut** — collapse or expand the summary body with a shortcut, `Tab` by default. Click the field in settings and press any combination that is not purely modifiers to rebind it; `X` clears it. Inside inputs and editable content, Tab keeps its native behaviour.
 - **Persistence** — summaries are cached in `localStorage` and synced through the plugin's own host endpoint, so they survive reloads and are shared across browsers and devices on the same DSH Host. Archiving a session removes its summary. Each generation reports its token usage in the panel.
 
